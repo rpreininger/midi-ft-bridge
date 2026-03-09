@@ -209,6 +209,81 @@ Access at `http://192.168.10.1:8080` to view:
 - MIDI event log (note, channel, velocity)
 - Test buttons to trigger clips from the browser
 
+## BLE Pixel Panel (iPixel Color)
+
+The BT panel region (32x16 pixels at x=256, y=0 in the 288x128 video) is sent
+via UDP to a Python bridge daemon that forwards frames over Bluetooth Low Energy.
+
+### Prerequisites
+
+```bash
+# Bluetooth stack
+sudo apt install -y bluetooth bluez
+
+# Python + BLE library
+sudo apt install -y python3 python3-pip python3-pillow
+pip3 install bleak
+```
+
+### Deploy
+
+```bash
+# Copy bridge script
+scp bt_bridge.py stratojets@192.168.10.1:~/midi-ft-bridge/
+scp bt-bridge.service stratojets@192.168.10.1:~/midi-ft-bridge/
+```
+
+### Pair the panel (one-time)
+
+Power on the iPixel Color panel, then:
+
+```bash
+sudo bluetoothctl
+  power on
+  scan on
+  # Wait for "LED_BLE_25F1E13D" to appear
+  trust D2:DF:25:F1:E1:3D
+  scan off
+  exit
+```
+
+### Test manually
+
+```bash
+# Terminal 1: run the main bridge (sends BT region to UDP 1340)
+cd ~/midi-ft-bridge
+sudo ./midi_ft_bridge --config config.json --test
+
+# Terminal 2: run the BLE bridge
+python3 bt_bridge.py --addr D2:DF:25:F1:E1:3D --port 1340 --brightness 80
+```
+
+### Install systemd service
+
+```bash
+sudo cp ~/midi-ft-bridge/bt-bridge.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable bt-bridge
+sudo systemctl start bt-bridge
+```
+
+The service starts after `midi-ft-bridge` and `bluetooth`, with a 5-second delay
+to let BLE initialize.
+
+### BLE service management
+
+```bash
+sudo systemctl status bt-bridge
+sudo journalctl -u bt-bridge -f
+sudo systemctl restart bt-bridge
+```
+
+### Known limitations
+
+- Pi Zero 2 W shares one radio for WiFi and BLE — expect ~3-5 FPS on the BLE panel
+- BLE range is limited (~10m), keep the panel close to the Pi
+- If the panel disconnects, the bridge auto-reconnects after 3 seconds
+
 ## Troubleshooting
 
 ### No MIDI device detected
