@@ -1,0 +1,1 @@
+ wsl bash -c 'cd /mnt/d/Developer/C++/raspi/midi-ft-bridge && ./build-native/midi_ft_bridge --test'

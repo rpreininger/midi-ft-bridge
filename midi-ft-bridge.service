@@ -1,0 +1,15 @@
+[Unit]
+Description=MIDI to Flaschen-Taschen Bridge
+After=network.target sound.target
+
+[Service]
+Type=simple
+ExecStartPre=/bin/sleep 3
+ExecStart=/home/stratojets/midi-ft-bridge/midi_ft_bridge --config /home/stratojets/midi-ft-bridge/config.json
+WorkingDirectory=/home/stratojets/midi-ft-bridge
+Restart=on-failure
+RestartSec=5
+User=root
+
+[Install]
+WantedBy=multi-user.target

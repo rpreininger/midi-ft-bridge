@@ -1,0 +1,19 @@
+# Build directories
+build-native/
+build-arm/
+
+# Video clips (large binary files)
+clips/*.mp4
+clips/*.aep
+
+# External repos (reference only)
+pypixelcolor/
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*~
+
+# Claude Code
+.claude/
