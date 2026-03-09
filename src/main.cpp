@@ -172,6 +172,9 @@ int main(int argc, char* argv[]) {
         regionBuffers.emplace_back(panel.src_w * panel.src_h * 3, 0);
     }
 
+    // Per-panel send throttle (for max_fps limiting)
+    std::vector<std::chrono::steady_clock::time_point> lastPanelSend(config.panels.size());
+
     // Start MIDI input
     MidiInput midiInput;
     if (!midiInput.start()) {
@@ -288,6 +291,15 @@ int main(int argc, char* argv[]) {
                     // Extract each panel's region and send
                     for (size_t i = 0; i < config.panels.size() && i < senders.size(); i++) {
                         const auto& panel = config.panels[i];
+
+                        // Throttle: skip this panel if max_fps is set and interval hasn't elapsed
+                        if (panel.max_fps > 0) {
+                            double minInterval = 1.0 / panel.max_fps;
+                            auto sinceLastSend = std::chrono::duration<double>(now - lastPanelSend[i]).count();
+                            if (sinceLastSend < minInterval) continue;
+                        }
+                        lastPanelSend[i] = now;
+
                         extractRegion(frame, config.video_width,
                                       panel.src_x, panel.src_y,
                                       panel.src_w, panel.src_h,

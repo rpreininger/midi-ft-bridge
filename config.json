@@ -3,7 +3,7 @@
     { "name": "A", "ip": "127.0.0.1", "port": 1337, "src_x": 0, "src_y": 0, "src_w": 128, "src_h": 128 },
     { "name": "B", "ip": "127.0.0.1", "port": 1338, "src_x": 128, "src_y": 0, "src_w": 128, "src_h": 64 },
     { "name": "C", "ip": "127.0.0.1", "port": 1339, "src_x": 128, "src_y": 64, "src_w": 128, "src_h": 64 },
-    { "name": "BT", "ip": "127.0.0.1", "port": 1340, "src_x": 256, "src_y": 0, "src_w": 32, "src_h": 16 }
+    { "name": "BT", "ip": "127.0.0.1", "port": 1340, "src_x": 256, "src_y": 0, "src_w": 32, "src_h": 16, "max_fps": 5 }
   ],
   "clips_dir": "./clips",
   "midi_channel": 9,
