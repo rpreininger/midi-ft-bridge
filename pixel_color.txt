@@ -1,1 +1,6 @@
-32x16
+iPixel Color BLE Panel
+Address: D2:DF:25:F1:E1:3D
+Name: LED_BLE_25F1E13D
+Resolution: 32x16
+Device type: 130 (LED type 4)
+Library: pypixelcolor (pip install pypixelcolor)

@@ -135,12 +135,14 @@ Library: [pypixelcolor](https://github.com/lucagoc/pypixelcolor) (Python, BLE vi
 
 ### Device Info
 
-- Resolution varies by model (32x32, 64x64, 128x32, 96x16, etc.) — auto-detected on connect
+- **Our device**: `LED_BLE_25F1E13D` at `D2:DF:25:F1:E1:3D`, **32x16 pixels** (device type 130, LED type 4)
 - BLE GATT write UUID: `0000fa02-0000-1000-8000-00805f9b34fb`
 - BLE GATT notify UUID: `0000fa03-0000-1000-8000-00805f9b34fb`
+- MTU: 517, no password
 - Frames sent as **PNG file bytes** (not raw RGB), chunked into 244-byte BLE writes
 - 12KB windows with ACK protocol (8s timeout per window)
 - Dependencies: `bleak`, `Pillow`
+- Tested working with `pypixelcolor` on Windows 11 + Python 3.14
 
 ### Key API
 
