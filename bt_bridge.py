@@ -160,7 +160,7 @@ class BLEBridge:
         loop = asyncio.get_event_loop()
         transport, protocol = await loop.create_datagram_endpoint(
             lambda: UDPFrameProtocol(self),
-            local_addr=("127.0.0.1", self.udp_port),
+            local_addr=("0.0.0.0", self.udp_port),
         )
         print(f"Listening for RGB frames on UDP 127.0.0.1:{self.udp_port}")
         print(f"  Packet format: [uint16 width][uint16 height][RGB24 data]")

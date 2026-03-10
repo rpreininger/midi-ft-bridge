@@ -304,7 +304,11 @@ int main(int argc, char* argv[]) {
                                       panel.src_x, panel.src_y,
                                       panel.src_w, panel.src_h,
                                       regionBuffers[i].data());
-                        senders[i]->send(regionBuffers[i].data(), panel.src_w, panel.src_h);
+                        if (panel.type == "ble") {
+                            senders[i]->sendRaw(regionBuffers[i].data(), panel.src_w, panel.src_h);
+                        } else {
+                            senders[i]->send(regionBuffers[i].data(), panel.src_w, panel.src_h);
+                        }
                     }
                 } else {
                     // Clip finished - send black frame to each panel and clear

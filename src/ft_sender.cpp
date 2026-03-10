@@ -100,6 +100,33 @@ void FTSender::send(const uint8_t* framebuffer, int width, int height,
     m_bytesSent += width * height * 3;
 }
 
+void FTSender::sendRaw(const uint8_t* framebuffer, int width, int height) {
+    if (!m_enabled.load() || m_socket < 0 || !m_destAddr) {
+        return;
+    }
+
+    // 4-byte header: uint16 LE width + uint16 LE height, then RGB24 data
+    int rgbSize = width * height * 3;
+    int packetSize = 4 + rgbSize;
+
+    if ((int)m_packetBuffer.size() < packetSize) {
+        m_packetBuffer.resize(packetSize);
+    }
+
+    // Little-endian width and height
+    m_packetBuffer[0] = width & 0xFF;
+    m_packetBuffer[1] = (width >> 8) & 0xFF;
+    m_packetBuffer[2] = height & 0xFF;
+    m_packetBuffer[3] = (height >> 8) & 0xFF;
+    memcpy(m_packetBuffer.data() + 4, framebuffer, rgbSize);
+
+    sendto(m_socket, m_packetBuffer.data(), packetSize, 0,
+           (struct sockaddr*)m_destAddr, sizeof(*m_destAddr));
+
+    m_framesSent++;
+    m_bytesSent += packetSize;
+}
+
 void FTSender::sendBlack(int width, int height) {
     int size = width * height * 3;
     if ((int)m_packetBuffer.size() < size) {

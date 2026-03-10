@@ -19,6 +19,7 @@ struct PanelConfig {
     int src_w = 0;   // Source region width (0 = use video_width)
     int src_h = 0;   // Source region height (0 = use video_height)
     int max_fps = 0;  // Max send rate for this panel (0 = no limit, use clip FPS)
+    std::string type = "ft";  // "ft" = Flaschen-Taschen PPM, "ble" = raw RGB for bt_bridge.py
 };
 
 struct MappingConfig {
@@ -74,6 +75,8 @@ struct Config {
                     panel.src_w = extractInt(obj, "src_w", 0);
                     panel.src_h = extractInt(obj, "src_h", 0);
                     panel.max_fps = extractInt(obj, "max_fps", 0);
+                    panel.type = extractString(obj, "type");
+                    if (panel.type.empty()) panel.type = "ft";
                     panels.push_back(panel);
 
                     pos = objEnd + 1;

@@ -25,6 +25,9 @@ public:
     void send(const uint8_t* framebuffer, int width, int height,
               int offsetX = 0, int offsetY = 0);
 
+    // Send raw RGB frame with uint16 LE width+height header (for BLE bridge)
+    void sendRaw(const uint8_t* framebuffer, int width, int height);
+
     // Send a black frame (clear the panel)
     void sendBlack(int width, int height);
 

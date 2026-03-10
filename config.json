@@ -1,25 +1,16 @@
 {
   "panels": [
-    { "name": "A", "ip": "127.0.0.1", "port": 1337, "src_x": 0, "src_y": 0, "src_w": 128, "src_h": 128 },
-    { "name": "B", "ip": "127.0.0.1", "port": 1338, "src_x": 128, "src_y": 0, "src_w": 128, "src_h": 64 },
-    { "name": "C", "ip": "127.0.0.1", "port": 1339, "src_x": 128, "src_y": 64, "src_w": 128, "src_h": 64 },
-    { "name": "BT", "ip": "127.0.0.1", "port": 1340, "src_x": 256, "src_y": 0, "src_w": 32, "src_h": 16, "max_fps": 5 }
+    { "name": "A", "ip": "172.23.64.1", "port": 1337, "src_x": 0, "src_y": 0, "src_w": 128, "src_h": 128 },
+    { "name": "B", "ip": "172.23.64.1", "port": 1338, "src_x": 128, "src_y": 0, "src_w": 128, "src_h": 64 },
+    { "name": "C", "ip": "172.23.64.1", "port": 1339, "src_x": 128, "src_y": 64, "src_w": 128, "src_h": 64 },
+    { "name": "BT", "ip": "172.23.64.1", "port": 1340, "src_x": 256, "src_y": 0, "src_w": 32, "src_h": 16, "max_fps": 5, "type": "ble" }
   ],
-  "clips_dir": "./clips",
+  "clips_dir": "./media",
   "midi_channel": 9,
   "mappings": [
-    { "note": 36, "panel": "all", "clip": "1.INTRO.mp4" },
-    { "note": 37, "panel": "all", "clip": "2.FRF.mp4" },
-    { "note": 38, "panel": "all", "clip": "3.MOON.mp4" },
-    { "note": 39, "panel": "all", "clip": "4.PIXL.mp4" },
-    { "note": 40, "panel": "all", "clip": "5.TENNIS.mp4" },
-    { "note": 41, "panel": "all", "clip": "6.NEU.mp4" },
-    { "note": 42, "panel": "all", "clip": "7.MAGNETO.mp4" },
-    { "note": 43, "panel": "all", "clip": "8.JIFFY.mp4" },
-    { "note": 44, "panel": "all", "clip": "10.SHIN.mp4" },
-    { "note": 45, "panel": "all", "clip": "11.SHRINK.mp4" },
-    { "note": 46, "panel": "all", "clip": "12.AXEL.mp4" },
-    { "note": 47, "panel": "all", "clip": "AXEL START.mp4" }
+    { "note": 36, "panel": "all", "clip": "FLY.mp4" },
+    { "note": 37, "panel": "all", "clip": "Test1.mp4" },
+    { "note": 38, "panel": "all", "clip": "intro.mp4" }
   ],
   "default_fps": 25,
   "video_width": 288,
