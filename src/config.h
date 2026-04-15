@@ -19,7 +19,9 @@ struct PanelConfig {
     int src_w = 0;   // Source region width (0 = use video_width)
     int src_h = 0;   // Source region height (0 = use video_height)
     int max_fps = 0;  // Max send rate for this panel (0 = no limit, use clip FPS)
-    std::string type = "ft";  // "ft" = Flaschen-Taschen PPM, "ble" = raw RGB for bt_bridge.py
+    std::string type = "ft";  // "ft" = Flaschen-Taschen PPM, "ble" = direct BLE via BlueZ
+    std::string ble_addr;     // BLE MAC address (for type="ble")
+    int brightness = 80;      // Panel brightness 0-100 (for type="ble")
 };
 
 struct MappingConfig {
@@ -37,6 +39,8 @@ struct Config {
     int video_height = 128;
     int web_port = 8080;
     int midi_channel = -1;  // MIDI channel filter (0-15, -1 = any). Channel 10 = 9 (0-indexed)
+    std::string audio_device;  // ALSA PCM device for audio output (e.g. "hw:1,0"). Empty = disabled.
+    bool debug = false;     // Enable verbose BLE/send logging
 
     bool load(const std::string& path) {
         std::ifstream file(path);
@@ -77,6 +81,8 @@ struct Config {
                     panel.max_fps = extractInt(obj, "max_fps", 0);
                     panel.type = extractString(obj, "type");
                     if (panel.type.empty()) panel.type = "ft";
+                    panel.ble_addr = extractString(obj, "ble_addr");
+                    panel.brightness = extractInt(obj, "brightness", 80);
                     panels.push_back(panel);
 
                     pos = objEnd + 1;
@@ -119,6 +125,8 @@ struct Config {
         video_height = extractInt(json, "video_height", 128);
         web_port = extractInt(json, "web_port", 8080);
         midi_channel = extractInt(json, "midi_channel", -1);
+        audio_device = extractString(json, "audio_device");
+        debug = extractInt(json, "debug", 0) != 0;
 
         // Default panel src_w/src_h to full video dimensions if not set
         for (auto& panel : panels) {

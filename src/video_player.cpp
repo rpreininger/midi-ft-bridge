@@ -20,6 +20,7 @@ VideoPlayer::VideoPlayer()
     , m_packet(nullptr)
     , m_swsCtx(nullptr)
     , m_videoStreamIdx(-1)
+    , m_audioStreamIdx(-1)
     , m_outWidth(0)
     , m_outHeight(0)
     , m_finished(true)
@@ -50,12 +51,14 @@ bool VideoPlayer::open(const std::string& path, int outWidth, int outHeight) {
         return false;
     }
 
-    // Find the video stream
+    // Find the video and audio streams
     m_videoStreamIdx = -1;
+    m_audioStreamIdx = -1;
     for (unsigned i = 0; i < m_formatCtx->nb_streams; i++) {
-        if (m_formatCtx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
+        if (m_formatCtx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO && m_videoStreamIdx < 0) {
             m_videoStreamIdx = i;
-            break;
+        } else if (m_formatCtx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_AUDIO && m_audioStreamIdx < 0) {
+            m_audioStreamIdx = i;
         }
     }
 
@@ -145,7 +148,11 @@ bool VideoPlayer::decodeNextFrame() {
             return false;
         }
 
-        if (m_packet->stream_index != m_videoStreamIdx) {
+        if (m_packet->stream_index == m_audioStreamIdx && m_audioCallback) {
+            m_audioCallback(m_packet);
+            av_packet_unref(m_packet);
+            continue;
+        } else if (m_packet->stream_index != m_videoStreamIdx) {
             av_packet_unref(m_packet);
             continue;
         }
@@ -186,6 +193,20 @@ double VideoPlayer::getFPS() const {
     return 25.0;
 }
 
+AVCodecParameters* VideoPlayer::getAudioCodecPar() const {
+    if (m_formatCtx && m_audioStreamIdx >= 0) {
+        return m_formatCtx->streams[m_audioStreamIdx]->codecpar;
+    }
+    return nullptr;
+}
+
+AVRational VideoPlayer::getAudioTimeBase() const {
+    if (m_formatCtx && m_audioStreamIdx >= 0) {
+        return m_formatCtx->streams[m_audioStreamIdx]->time_base;
+    }
+    return {0, 1};
+}
+
 void VideoPlayer::close() {
     if (m_swsCtx) { sws_freeContext(m_swsCtx); m_swsCtx = nullptr; }
     if (m_rgbFrame) { av_frame_free(&m_rgbFrame); m_rgbFrame = nullptr; }
@@ -194,6 +215,8 @@ void VideoPlayer::close() {
     if (m_codecCtx) { avcodec_free_context(&m_codecCtx); m_codecCtx = nullptr; }
     if (m_formatCtx) { avformat_close_input(&m_formatCtx); m_formatCtx = nullptr; }
     m_videoStreamIdx = -1;
+    m_audioStreamIdx = -1;
+    m_audioCallback = nullptr;
     m_finished = true;
     m_rgbBuffer.clear();
 }

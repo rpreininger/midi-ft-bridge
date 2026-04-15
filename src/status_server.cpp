@@ -110,6 +110,28 @@ void StatusServer::handleClient(int clientSocket) {
                    "Content-Type: application/json\r\n"
                    "Access-Control-Allow-Origin: *\r\n\r\n" + json;
     }
+    else if (request.find("GET /api/shutdown-panels") != std::string::npos) {
+        // Shutdown all FT panels via SSH
+        std::string result;
+        if (m_config) {
+            for (const auto& panel : m_config->panels) {
+                if (panel.type == "ft" && panel.ip != "127.0.0.1") {
+                    std::string cmd = "ssh -o ConnectTimeout=3 -o StrictHostKeyChecking=no root@" + panel.ip + " 'sudo shutdown now' 2>&1 &";
+                    int ret = system(cmd.c_str());
+                    result += panel.name + " (" + panel.ip + "): " + (ret == 0 ? "sent" : "failed") + "\n";
+                    std::cerr << "Shutdown " << panel.name << " (" << panel.ip << "): " << (ret == 0 ? "sent" : "failed") << std::endl;
+                }
+            }
+        }
+        response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nShutdown sent:\n" + result;
+    }
+    else if (request.find("GET /api/shutdown-hub") != std::string::npos) {
+        response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nHub shutting down...";
+        write(clientSocket, response.c_str(), response.length());
+        close(clientSocket);
+        system("sudo shutdown now &");
+        return;
+    }
     else if (request.find("GET /api/test?note=") != std::string::npos) {
         size_t pos = request.find("note=");
         int note = atoi(request.c_str() + pos + 5);
@@ -230,6 +252,10 @@ std::string StatusServer::generateHTML() {
         .mapping-clip { color: #ff6b9d; }
         .test-btn { background: #0f3460; border: 1px solid #1a5a9e; color: #fff; padding: 3px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; margin-left: auto; }
         .test-btn:hover { background: #1a5a9e; }
+        .shutdown-section { margin-top: 16px; display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+        .shutdown-btn { background: #4a1a1a; border: 1px solid #8a3333; color: #ff6666; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 600; }
+        .shutdown-btn:hover { background: #6a2a2a; border-color: #ff4444; }
+        .shutdown-btn.hub { background: #5a1a1a; border-color: #aa3333; color: #ff4444; }
         .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
         .badge-ok { background: #1a3a2a; color: #00ff88; }
         .badge-warn { background: #3a3a1a; color: #ffcc00; }
@@ -279,7 +305,21 @@ std::string StatusServer::generateHTML() {
         </div>
     </div>
 
+    <div class="shutdown-section">
+        <button class="shutdown-btn" onclick="shutdownPanels()">Shutdown All Panels</button>
+        <button class="shutdown-btn hub" onclick="shutdownHub()">Shutdown Hub</button>
+    </div>
+
     <script>
+        function shutdownPanels() {
+            if (!confirm('Shutdown all FT panels?')) return;
+            fetch('/api/shutdown-panels').then(function(r) { return r.text(); }).then(function(t) { alert(t); });
+        }
+        function shutdownHub() {
+            if (!confirm('Shutdown the hub (Pi)? This will stop all services!')) return;
+            fetch('/api/shutdown-hub').then(function(r) { return r.text(); }).then(function(t) { alert(t); });
+        }
+
         function formatUptime(seconds) {
             var h = Math.floor(seconds / 3600);
             var m = Math.floor((seconds % 3600) / 60);

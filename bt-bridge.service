@@ -7,7 +7,7 @@ PartOf=midi-ft-bridge.service
 [Service]
 Type=simple
 ExecStartPre=/bin/sleep 5
-ExecStart=/usr/bin/python3 /home/stratojets/midi-ft-bridge/bt_bridge.py --addr D2:DF:25:F1:E1:3D --port 1340 --brightness 80
+ExecStart=/opt/bt-bridge-venv/bin/python3 /home/stratojets/midi-ft-bridge/bt_bridge.py --addr D2:DF:25:F1:E1:3D --port 1340 --brightness 80
 WorkingDirectory=/home/stratojets/midi-ft-bridge
 Restart=on-failure
 RestartSec=5
