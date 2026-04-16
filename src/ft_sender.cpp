@@ -12,6 +12,7 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <netdb.h>
+#include <fcntl.h>
 
 // Max rows per tile to keep UDP packets under ~1400 bytes
 // 128 pixels * 3 bytes * 3 rows = 1152 bytes + ~30 byte header = ~1182 bytes
@@ -43,6 +44,14 @@ bool FTSender::init(const std::string& host, int port) {
         std::cerr << "FTSender: Failed to create UDP socket" << std::endl;
         return false;
     }
+
+    // Non-blocking so sendto never stalls the main loop
+    int flags = fcntl(m_socket, F_GETFL, 0);
+    fcntl(m_socket, F_SETFL, flags | O_NONBLOCK);
+
+    // Increase send buffer to reduce dropped packets
+    int sndbuf = 256 * 1024;
+    setsockopt(m_socket, SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof(sndbuf));
 
     struct hostent* he = gethostbyname(host.c_str());
     if (!he) {

@@ -17,9 +17,9 @@ extern "C" {
 }
 
 // Ring buffer capacity in seconds (at 48kHz stereo)
-static constexpr size_t RING_BUF_SECONDS = 4;
+static constexpr size_t RING_BUF_SECONDS = 10;
 static constexpr int OUT_CHANNELS = 2;
-static constexpr int OUT_SAMPLE_FMT = AV_SAMPLE_FMT_S16;
+static constexpr int OUT_SAMPLE_FMT = AV_SAMPLE_FMT_FLT;
 
 AudioPlayer::AudioPlayer()
     : m_pcm(nullptr)
@@ -54,10 +54,10 @@ bool AudioPlayer::init(const std::string& alsaDevice) {
 
     // Configure initial params so ALSA doesn't output garbage
     snd_pcm_set_params(m_pcm,
-                       SND_PCM_FORMAT_S16_LE,
+                       SND_PCM_FORMAT_FLOAT_LE,
                        SND_PCM_ACCESS_RW_INTERLEAVED,
                        OUT_CHANNELS, 48000,
-                       1, 500000);
+                       0, 500000);
     snd_pcm_drop(m_pcm);
     snd_pcm_prepare(m_pcm);
 
@@ -115,7 +115,7 @@ bool AudioPlayer::openStream(AVCodecParameters* codecpar, int timeBaseNum, int t
     }
 
     swr_alloc_set_opts2(&m_swrCtx,
-                        &outLayout, AV_SAMPLE_FMT_S16, m_sampleRate,
+                        &outLayout, AV_SAMPLE_FMT_FLT, m_sampleRate,
                         &inLayout, m_codecCtx->sample_fmt, m_codecCtx->sample_rate,
                         0, nullptr);
 
@@ -125,14 +125,14 @@ bool AudioPlayer::openStream(AVCodecParameters* codecpar, int timeBaseNum, int t
         return false;
     }
 
-    // Configure ALSA for this stream's sample rate
+    // Configure ALSA for this stream's sample rate (FLOAT_LE = Fantom native format)
     int err = snd_pcm_set_params(m_pcm,
-                                 SND_PCM_FORMAT_S16_LE,
+                                 SND_PCM_FORMAT_FLOAT_LE,
                                  SND_PCM_ACCESS_RW_INTERLEAVED,
                                  OUT_CHANNELS,
                                  m_sampleRate,
-                                 1,       // allow software resampling
-                                 2000000); // 2s latency (Pi Zero needs headroom for I-frame decode spikes)
+                                 0,       // no software resampling (native format)
+                                 2000000); // 2s latency
     if (err < 0) {
         std::cerr << "AudioPlayer: Failed to set ALSA params: "
                   << snd_strerror(err) << std::endl;
@@ -147,7 +147,7 @@ bool AudioPlayer::openStream(AVCodecParameters* codecpar, int timeBaseNum, int t
         snd_pcm_uframes_t bufferSize;
         snd_pcm_uframes_t periodSize;
         snd_pcm_get_params(m_pcm, &bufferSize, &periodSize);
-        std::vector<int16_t> silence(bufferSize * OUT_CHANNELS, 0);
+        std::vector<float> silence(bufferSize * OUT_CHANNELS, 0.0f);
         snd_pcm_writei(m_pcm, silence.data(), bufferSize);
     }
 
@@ -166,7 +166,7 @@ bool AudioPlayer::openStream(AVCodecParameters* codecpar, int timeBaseNum, int t
     std::cerr << "AudioPlayer: Stream opened ("
               << m_codecCtx->sample_rate << "Hz "
               << m_codecCtx->ch_layout.nb_channels << "ch -> "
-              << m_sampleRate << "Hz " << OUT_CHANNELS << "ch S16)" << std::endl;
+              << m_sampleRate << "Hz " << OUT_CHANNELS << "ch FLOAT)" << std::endl;
 
     return true;
 }
@@ -199,13 +199,16 @@ void AudioPlayer::flush() {
 }
 
 void AudioPlayer::decodeAndBuffer(AVFrame* frame) {
-    // Resample to S16LE stereo
+    // Resample to FLOAT_LE stereo (Fantom native format)
     int outSamples = swr_get_out_samples(m_swrCtx, frame->nb_samples);
     if (outSamples <= 0) return;
 
-    // Temporary buffer for resampled output
-    std::vector<int16_t> tmp(outSamples * OUT_CHANNELS);
-    uint8_t* outBuf = reinterpret_cast<uint8_t*>(tmp.data());
+    // Resize pre-allocated buffer if needed (no alloc after first few calls)
+    size_t needed = outSamples * OUT_CHANNELS;
+    if (m_resampleBuf.size() < needed) {
+        m_resampleBuf.resize(needed);
+    }
+    uint8_t* outBuf = reinterpret_cast<uint8_t*>(m_resampleBuf.data());
 
     int converted = swr_convert(m_swrCtx,
                                 &outBuf, outSamples,
@@ -224,7 +227,7 @@ void AudioPlayer::decodeAndBuffer(AVFrame* frame) {
                 m_readPos = (m_readPos + 1) % m_ringCapacity;
                 m_available--;
             }
-            m_ringBuf[m_writePos] = tmp[i];
+            m_ringBuf[m_writePos] = m_resampleBuf[i];
             m_writePos = (m_writePos + 1) % m_ringCapacity;
             m_available++;
         }
@@ -288,14 +291,14 @@ void AudioPlayer::writerThread() {
     }
 
     const size_t framesPerWrite = 1024;
-    std::vector<int16_t> writeBuf(framesPerWrite * OUT_CHANNELS);
+    std::vector<float> writeBuf(framesPerWrite * OUT_CHANNELS);
 
     while (m_running) {
         size_t framesToWrite = 0;
         {
             std::unique_lock<std::mutex> lock(m_bufMutex);
-            // Wait until prefilled or stopped
-            m_bufCv.wait(lock, [&] {
+            // Timed wait: wake on new data or every 5ms to keep ALSA fed
+            m_bufCv.wait_for(lock, std::chrono::milliseconds(5), [&] {
                 return !m_running || (m_playing && m_prefilled && m_available > 0);
             });
 
@@ -326,8 +329,7 @@ void AudioPlayer::writerThread() {
                 std::chrono::steady_clock::now() - m_streamStart).count();
             double audioPos = (double)m_totalWritten / m_sampleRate;
             std::cerr << "AudioPlayer: underrun at wall=" << elapsed
-                      << "s audio=" << audioPos << "s written="
-                      << m_totalWritten << " avail=" << m_available << std::endl;
+                      << "s audio=" << audioPos << "s" << std::endl;
             snd_pcm_prepare(m_pcm);
         } else if (written == -ESTRPIPE) {
             while (snd_pcm_resume(m_pcm) == -EAGAIN) {

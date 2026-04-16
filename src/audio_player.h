@@ -69,7 +69,7 @@ private:
     // PCM ring buffer
     std::mutex m_bufMutex;
     std::condition_variable m_bufCv;
-    std::vector<int16_t> m_ringBuf;
+    std::vector<float> m_ringBuf;
     size_t m_ringCapacity;  // in samples (not bytes)
     size_t m_readPos;
     size_t m_writePos;
@@ -82,4 +82,7 @@ private:
     std::atomic<bool> m_prefilled;  // true once ring buffer has enough data to start
     std::chrono::steady_clock::time_point m_streamStart;
     size_t m_totalWritten;  // total frames written to ALSA
+
+    // Pre-allocated resample buffer (avoids per-call heap alloc)
+    std::vector<float> m_resampleBuf;
 };
