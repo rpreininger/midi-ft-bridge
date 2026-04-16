@@ -25,6 +25,6 @@
   "video_width": 288,
   "video_height": 128,
   "web_port": 8080,
-  "audio_device": "plughw:3,0",
+  "audio_device": "plughw:Fantom,0",
   "debug": 1
 }

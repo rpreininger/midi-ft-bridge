@@ -9,6 +9,7 @@
 #include <condition_variable>
 #include <thread>
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 
 // Forward declarations
@@ -79,4 +80,6 @@ private:
     std::atomic<bool> m_running;
     std::atomic<bool> m_playing;
     std::atomic<bool> m_prefilled;  // true once ring buffer has enough data to start
+    std::chrono::steady_clock::time_point m_streamStart;
+    size_t m_totalWritten;  // total frames written to ALSA
 };

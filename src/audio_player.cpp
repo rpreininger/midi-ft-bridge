@@ -6,6 +6,8 @@
 #include <iostream>
 #include <cstring>
 #include <algorithm>
+#include <pthread.h>
+#include <unistd.h>
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -15,7 +17,7 @@ extern "C" {
 }
 
 // Ring buffer capacity in seconds (at 48kHz stereo)
-static constexpr size_t RING_BUF_SECONDS = 2;
+static constexpr size_t RING_BUF_SECONDS = 4;
 static constexpr int OUT_CHANNELS = 2;
 static constexpr int OUT_SAMPLE_FMT = AV_SAMPLE_FMT_S16;
 
@@ -130,7 +132,7 @@ bool AudioPlayer::openStream(AVCodecParameters* codecpar, int timeBaseNum, int t
                                  OUT_CHANNELS,
                                  m_sampleRate,
                                  1,       // allow software resampling
-                                 1000000); // 1s latency (Pi Zero + plughw format conversion)
+                                 2000000); // 2s latency (Pi Zero needs headroom for I-frame decode spikes)
     if (err < 0) {
         std::cerr << "AudioPlayer: Failed to set ALSA params: "
                   << snd_strerror(err) << std::endl;
@@ -138,9 +140,16 @@ bool AudioPlayer::openStream(AVCodecParameters* codecpar, int timeBaseNum, int t
         return false;
     }
 
-    // Drop any pending samples and reset ALSA to a clean state
+    // Reset ALSA and prime with silence to prevent initial underrun
     snd_pcm_drop(m_pcm);
     snd_pcm_prepare(m_pcm);
+    {
+        snd_pcm_uframes_t bufferSize;
+        snd_pcm_uframes_t periodSize;
+        snd_pcm_get_params(m_pcm, &bufferSize, &periodSize);
+        std::vector<int16_t> silence(bufferSize * OUT_CHANNELS, 0);
+        snd_pcm_writei(m_pcm, silence.data(), bufferSize);
+    }
 
     // Allocate ring buffer
     m_ringCapacity = m_sampleRate * OUT_CHANNELS * RING_BUF_SECONDS;
@@ -149,8 +158,10 @@ bool AudioPlayer::openStream(AVCodecParameters* codecpar, int timeBaseNum, int t
     m_writePos = 0;
     m_available = 0;
 
-    m_prefilled = false;
+    m_prefilled = true;  // ALSA already primed with silence
     m_playing = true;
+    m_streamStart = std::chrono::steady_clock::now();
+    m_totalWritten = 0;
 
     std::cerr << "AudioPlayer: Stream opened ("
               << m_codecCtx->sample_rate << "Hz "
@@ -268,6 +279,14 @@ void AudioPlayer::close() {
 }
 
 void AudioPlayer::writerThread() {
+    // Elevate thread priority to avoid starvation during heavy video decode
+    struct sched_param param;
+    param.sched_priority = sched_get_priority_max(SCHED_FIFO);
+    if (pthread_setschedparam(pthread_self(), SCHED_FIFO, &param) != 0) {
+        // Fallback: at least try a nice value
+        nice(-10);
+    }
+
     const size_t framesPerWrite = 1024;
     std::vector<int16_t> writeBuf(framesPerWrite * OUT_CHANNELS);
 
@@ -299,8 +318,16 @@ void AudioPlayer::writerThread() {
 
         // Write to ALSA
         snd_pcm_sframes_t written = snd_pcm_writei(m_pcm, writeBuf.data(), framesToWrite);
+        if (written > 0) {
+            m_totalWritten += written;
+        }
         if (written == -EPIPE) {
-            std::cerr << "AudioPlayer: underrun" << std::endl;
+            auto elapsed = std::chrono::duration<double>(
+                std::chrono::steady_clock::now() - m_streamStart).count();
+            double audioPos = (double)m_totalWritten / m_sampleRate;
+            std::cerr << "AudioPlayer: underrun at wall=" << elapsed
+                      << "s audio=" << audioPos << "s written="
+                      << m_totalWritten << " avail=" << m_available << std::endl;
             snd_pcm_prepare(m_pcm);
         } else if (written == -ESTRPIPE) {
             while (snd_pcm_resume(m_pcm) == -EAGAIN) {
