@@ -35,6 +35,7 @@ AudioPlayer::AudioPlayer()
     , m_running(false)
     , m_playing(false)
     , m_prefilled(false)
+    , m_totalWritten(0)
 {
 }
 

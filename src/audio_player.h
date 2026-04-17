@@ -48,6 +48,14 @@ public:
     void close();
 
     bool isInitialized() const { return m_pcm != nullptr; }
+    bool isPlaying() const { return m_playing; }
+
+    // Master clock: returns playback position in seconds based on samples written to ALSA.
+    double getPlaybackPositionSec() const {
+        return (m_sampleRate > 0) ? (double)m_totalWritten / m_sampleRate : 0.0;
+    }
+
+    int getSampleRate() const { return m_sampleRate; }
 
 private:
     void writerThread();
@@ -81,7 +89,7 @@ private:
     std::atomic<bool> m_playing;
     std::atomic<bool> m_prefilled;  // true once ring buffer has enough data to start
     std::chrono::steady_clock::time_point m_streamStart;
-    size_t m_totalWritten;  // total frames written to ALSA
+    std::atomic<size_t> m_totalWritten{0};  // total frames written to ALSA (read cross-thread)
 
     // Pre-allocated resample buffer (avoids per-call heap alloc)
     std::vector<float> m_resampleBuf;

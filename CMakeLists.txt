@@ -13,6 +13,7 @@ set(SOURCES
     src/midi_input.cpp
     src/video_player.cpp
     src/audio_player.cpp
+    src/clip_player.cpp
     src/ft_sender.cpp
     src/ble_sender.cpp
     src/lodepng.cpp

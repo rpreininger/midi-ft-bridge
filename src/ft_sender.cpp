@@ -20,7 +20,8 @@ static const int TILE_ROWS = 3;
 
 FTSender::FTSender()
     : m_socket(-1)
-    , m_destAddr(nullptr)
+    , m_destAddr{}
+    , m_hasAddr(false)
     , m_enabled(false)
     , m_framesSent(0)
     , m_bytesSent(0)
@@ -32,7 +33,6 @@ FTSender::~FTSender() {
     if (m_socket >= 0) {
         close(m_socket);
     }
-    delete m_destAddr;
 }
 
 bool FTSender::init(const std::string& host, int port) {
@@ -61,11 +61,11 @@ bool FTSender::init(const std::string& host, int port) {
         return false;
     }
 
-    m_destAddr = new struct sockaddr_in;
-    memset(m_destAddr, 0, sizeof(*m_destAddr));
-    m_destAddr->sin_family = AF_INET;
-    m_destAddr->sin_port = htons(port);
-    memcpy(&m_destAddr->sin_addr, he->h_addr_list[0], he->h_length);
+    memset(&m_destAddr, 0, sizeof(m_destAddr));
+    m_destAddr.sin_family = AF_INET;
+    m_destAddr.sin_port = htons(port);
+    memcpy(&m_destAddr.sin_addr, he->h_addr_list[0], he->h_length);
+    m_hasAddr = true;
 
     m_enabled.store(true);
 
@@ -76,7 +76,7 @@ bool FTSender::init(const std::string& host, int port) {
 
 void FTSender::send(const uint8_t* framebuffer, int width, int height,
                     int offsetX, int offsetY) {
-    if (!m_enabled.load() || m_socket < 0 || !m_destAddr) {
+    if (!m_enabled.load() || m_socket < 0 || !m_hasAddr) {
         return;
     }
 
@@ -102,7 +102,7 @@ void FTSender::send(const uint8_t* framebuffer, int width, int height,
                framebuffer + (y * width * 3), tilePixels);
 
         sendto(m_socket, m_packetBuffer.data(), packetSize, 0,
-               (struct sockaddr*)m_destAddr, sizeof(*m_destAddr));
+               (struct sockaddr*)&m_destAddr, sizeof(m_destAddr));
     }
 
     m_framesSent++;
@@ -110,7 +110,7 @@ void FTSender::send(const uint8_t* framebuffer, int width, int height,
 }
 
 void FTSender::sendRaw(const uint8_t* framebuffer, int width, int height) {
-    if (!m_enabled.load() || m_socket < 0 || !m_destAddr) {
+    if (!m_enabled.load() || m_socket < 0 || !m_hasAddr) {
         return;
     }
 
@@ -130,17 +130,15 @@ void FTSender::sendRaw(const uint8_t* framebuffer, int width, int height) {
     memcpy(m_packetBuffer.data() + 4, framebuffer, rgbSize);
 
     sendto(m_socket, m_packetBuffer.data(), packetSize, 0,
-           (struct sockaddr*)m_destAddr, sizeof(*m_destAddr));
+           (struct sockaddr*)&m_destAddr, sizeof(m_destAddr));
 
     m_framesSent++;
     m_bytesSent += packetSize;
 }
 
 void FTSender::sendBlack(int width, int height) {
-    int size = width * height * 3;
-    if ((int)m_packetBuffer.size() < size) {
-        m_packetBuffer.resize(size);
-    }
-    memset(m_packetBuffer.data(), 0, size);
-    send(m_packetBuffer.data(), width, height);
+    // Use a separate buffer — send() writes into m_packetBuffer,
+    // so we can't use it as both source and destination.
+    std::vector<uint8_t> black(width * height * 3, 0);
+    send(black.data(), width, height);
 }

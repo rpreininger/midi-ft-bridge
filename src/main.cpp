@@ -3,13 +3,14 @@
 //  Receives USB MIDI events from Roland Fantom 06 and streams
 //  mapped MP4 video clips to Flaschen-Taschen LED panels over WiFi
 //
-//  A single video (e.g. 256x128) is decoded once per frame.
-//  Each panel receives a cropped region defined by src_x/y/w/h.
+//  Audio-master architecture: audio playback drives the master clock,
+//  video frames are picked to match. Falls back to wall-clock for
+//  clips without audio.
 // ====================================================================
 
 #include "config.h"
 #include "midi_input.h"
-#include "video_player.h"
+#include "clip_player.h"
 #include "audio_player.h"
 #include "ft_sender.h"
 #include "ble_sender.h"
@@ -36,14 +37,6 @@ static void signalHandler(int sig) {
     (void)sig;
     g_running = false;
 }
-
-// Shared clip playback state (one video feeds all panels)
-struct ActiveClip {
-    std::unique_ptr<VideoPlayer> player;
-    std::string clipName;
-    double fps;
-    std::chrono::steady_clock::time_point lastFrameTime;
-};
 
 // Extract a sub-rectangle from an RGB24 frame into a contiguous buffer
 static void extractRegion(const uint8_t* src, int srcWidth,
@@ -79,41 +72,34 @@ static int pollKeyboard() {
     int n = read(STDIN_FILENO, buf, sizeof(buf));
     if (n < 1) return -1;
 
-    // ESC sequence: F1=\e[OP or \eOP, F1-F4=\eOP..\eOS, F5-F12=\e[15~..\e[24~
-    // Also handle number keys 1-9,0 as fallback
     if (n == 1) {
-        // Number keys: '1'-'9' -> mapping 0-8, '0' -> mapping 9
         if (buf[0] >= '1' && buf[0] <= '9') return buf[0] - '1';
         if (buf[0] == '0') return 9;
         if (buf[0] == '-') return 10;
         if (buf[0] == '=') return 11;
-        if (buf[0] == '\x1b') return -2;  // ESC = stop playback
+        if (buf[0] == '\x1b') return -2;
         if (buf[0] == 'q' || buf[0] == 'Q') { g_running = false; return -1; }
         return -1;
     }
 
-    // ESC [ sequences for F-keys
     if (buf[0] == '\x1b') {
-        // \eOP..\eOS = F1-F4
         if (n >= 3 && buf[1] == 'O') {
-            if (buf[2] == 'P') return 0;  // F1
-            if (buf[2] == 'Q') return 1;  // F2
-            if (buf[2] == 'R') return 2;  // F3
-            if (buf[2] == 'S') return 3;  // F4
+            if (buf[2] == 'P') return 0;
+            if (buf[2] == 'Q') return 1;
+            if (buf[2] == 'R') return 2;
+            if (buf[2] == 'S') return 3;
         }
-        // \e[15~ = F5, \e[17~ = F6, \e[18~ = F7, \e[19~ = F8
-        // \e[20~ = F9, \e[21~ = F10, \e[23~ = F11, \e[24~ = F12
         if (n >= 4 && buf[1] == '[' && buf[n-1] == '~') {
             int code = atoi(buf + 2);
             switch (code) {
-                case 15: return 4;   // F5
-                case 17: return 5;   // F6
-                case 18: return 6;   // F7
-                case 19: return 7;   // F8
-                case 20: return 8;   // F9
-                case 21: return 9;   // F10
-                case 23: return 10;  // F11
-                case 24: return 11;  // F12
+                case 15: return 4;
+                case 17: return 5;
+                case 18: return 6;
+                case 19: return 7;
+                case 20: return 8;
+                case 21: return 9;
+                case 23: return 10;
+                case 24: return 11;
             }
         }
     }
@@ -124,7 +110,6 @@ int main(int argc, char* argv[]) {
     std::string configPath = "config.json";
     bool testMode = false;
 
-    // Parse CLI args
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--config") == 0 && i + 1 < argc) {
             configPath = argv[++i];
@@ -136,7 +121,6 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    // Install signal handlers
     signal(SIGINT, signalHandler);
     signal(SIGTERM, signalHandler);
 
@@ -154,10 +138,9 @@ int main(int argc, char* argv[]) {
         if (panel.type == "ble") {
             auto ble = std::make_unique<BleSender>();
             ble->init(panel.ble_addr, panel.brightness, config.debug);
-            senders.push_back(nullptr);  // placeholder to keep indices aligned
+            senders.push_back(nullptr);
             bleSenders.push_back(std::move(ble));
         } else if (panel.type == "ble_udp") {
-            // UDP raw RGB sender for Python bt_bridge.py
             auto sender = std::make_unique<FTSender>();
             if (!sender->init(panel.ip, panel.port)) {
                 std::cerr << "Warning: Failed to init ble_udp sender for panel "
@@ -177,7 +160,7 @@ int main(int argc, char* argv[]) {
     }
     std::cerr << "Initialized " << config.panels.size() << " panel senders" << std::endl;
 
-    // Initialize audio player (optional)
+    // Initialize audio player (optional, shared across clips)
     AudioPlayer audioPlayer;
     if (!config.audio_device.empty()) {
         if (!audioPlayer.init(config.audio_device)) {
@@ -186,14 +169,14 @@ int main(int argc, char* argv[]) {
     }
 
     // Build MIDI note -> mapping lookup
-    // Key: MIDI note, Value: index into config.mappings
     std::map<int, int> noteMappings;
     for (size_t i = 0; i < config.mappings.size(); i++) {
         noteMappings[config.mappings[i].note] = (int)i;
     }
 
-    // Single shared active clip (one video feeds all panels)
-    std::unique_ptr<ActiveClip> activeClip;
+    // Active clip player (audio-master orchestrator)
+    std::unique_ptr<ClipPlayer> activeClip;
+    std::string activeClipName;
 
     // Pre-allocate region extraction buffers (one per panel)
     std::vector<std::vector<uint8_t>> regionBuffers;
@@ -220,7 +203,6 @@ int main(int argc, char* argv[]) {
     if (midiInput.isRunning()) {
         statusServer.setMidiDevice(midiInput.getDeviceName());
     }
-
     statusServer.start();
 
     // Set up terminal raw mode for keyboard test mode
@@ -246,36 +228,36 @@ int main(int argc, char* argv[]) {
 
     std::cerr << "midi-ft-bridge running. Press Ctrl+C to stop." << std::endl;
 
+    // Helper: send black to all panels
+    auto sendBlackToAll = [&]() {
+        for (size_t i = 0; i < config.panels.size(); i++) {
+            if (config.panels[i].type == "ble" && bleSenders[i]) {
+                bleSenders[i]->sendBlack(config.panels[i].src_w, config.panels[i].src_h);
+            } else if (config.panels[i].type == "ble_udp" && senders[i]) {
+                std::vector<uint8_t> black(config.panels[i].src_w * config.panels[i].src_h * 3, 0);
+                senders[i]->sendRaw(black.data(), config.panels[i].src_w, config.panels[i].src_h);
+            } else if (senders[i]) {
+                senders[i]->sendBlack(config.panels[i].src_w, config.panels[i].src_h);
+            }
+        }
+    };
+
     // Helper: trigger a clip by mapping index
-    auto triggerMapping = [&](int mappingIdx, std::chrono::steady_clock::time_point now) {
+    auto triggerMapping = [&](int mappingIdx) {
         if (mappingIdx < 0 || mappingIdx >= (int)config.mappings.size()) return;
         const auto& mapping = config.mappings[mappingIdx];
         std::string clipPath = config.clips_dir + "/" + mapping.clip;
 
-        // Stop previous audio immediately
-        if (audioPlayer.isInitialized()) {
-            audioPlayer.stopClip();
+        // Stop previous clip
+        if (activeClip) {
+            activeClip->stop();
+            activeClip.reset();
         }
 
-        auto player = std::make_unique<VideoPlayer>();
-        if (player->open(clipPath, config.video_width, config.video_height)) {
-            // Set up audio if available
-            if (audioPlayer.isInitialized() && player->getAudioCodecPar()) {
-                AVRational tb = player->getAudioTimeBase();
-                if (audioPlayer.openStream(player->getAudioCodecPar(), tb.num, tb.den)) {
-                    player->setAudioCallback([&](AVPacket* pkt) {
-                        audioPlayer.feedPacket(pkt);
-                    });
-                }
-            }
-
-            auto ac = std::make_unique<ActiveClip>();
-            ac->player = std::move(player);
-            ac->clipName = mapping.clip;
-            ac->fps = ac->player->getFPS();
-            if (ac->fps <= 0) ac->fps = config.default_fps;
-            ac->lastFrameTime = now;
-            activeClip = std::move(ac);
+        auto player = std::make_unique<ClipPlayer>();
+        if (player->open(clipPath, config.video_width, config.video_height, &audioPlayer)) {
+            activeClipName = mapping.clip;
+            activeClip = std::move(player);
             std::cerr << "Playing " << mapping.clip << " on all panels" << std::endl;
         }
     };
@@ -284,10 +266,10 @@ int main(int argc, char* argv[]) {
     statusServer.setTestCallback([&](int note) {
         auto it = noteMappings.find(note);
         if (it == noteMappings.end()) return;
-        triggerMapping(it->second, std::chrono::steady_clock::now());
+        triggerMapping(it->second);
     });
 
-    // Main loop
+    // Main loop — no longer does decoding, just picks frames and sends
     while (g_running) {
         auto now = std::chrono::steady_clock::now();
 
@@ -295,27 +277,18 @@ int main(int argc, char* argv[]) {
         if (testMode) {
             int keyIdx = pollKeyboard();
             if (keyIdx == -2 && activeClip) {
-                // ESC = stop current playback
                 std::cerr << "ESC -> stop" << std::endl;
-                if (audioPlayer.isInitialized()) {
-                    audioPlayer.stopClip();
-                }
-                for (size_t i = 0; i < config.panels.size(); i++) {
-                    if (config.panels[i].type == "ble" && bleSenders[i]) {
-                        bleSenders[i]->sendBlack(config.panels[i].src_w, config.panels[i].src_h);
-                    } else if (senders[i]) {
-                        senders[i]->sendBlack(config.panels[i].src_w, config.panels[i].src_h);
-                    }
-                }
+                activeClip->stop();
                 activeClip.reset();
+                activeClipName.clear();
+                sendBlackToAll();
             } else if (keyIdx >= 0) {
-                // Skip if this clip is already playing (key repeat guard)
                 bool alreadyPlaying = activeClip &&
                     keyIdx < (int)config.mappings.size() &&
-                    activeClip->clipName == config.mappings[keyIdx].clip;
+                    activeClipName == config.mappings[keyIdx].clip;
                 if (!alreadyPlaying) {
                     std::cerr << "Key " << keyIdx << " -> trigger" << std::endl;
-                    triggerMapping(keyIdx, now);
+                    triggerMapping(keyIdx);
                 }
             }
         }
@@ -323,7 +296,6 @@ int main(int argc, char* argv[]) {
         // Poll MIDI events
         MidiEvent event;
         while (midiInput.getNextEvent(event)) {
-            // Log to status server
             MidiEventLog logEntry;
             logEntry.type = (event.type == MidiEvent::NOTE_ON) ? "NOTE_ON" : "NOTE_OFF";
             logEntry.note = event.note;
@@ -333,69 +305,49 @@ int main(int argc, char* argv[]) {
                 now.time_since_epoch()).count();
             statusServer.logMidiEvent(logEntry);
 
-            // Only handle Note On events on the configured channel
             if (event.type != MidiEvent::NOTE_ON) continue;
             if (config.midi_channel >= 0 && event.channel != config.midi_channel) continue;
 
             auto it = noteMappings.find(event.note);
             if (it == noteMappings.end()) continue;
 
-            triggerMapping(it->second, now);
+            triggerMapping(it->second);
         }
 
-        // Update active clip: decode one frame, extract regions, send to all panels
+        // Get current frame from clip player (synced to audio clock)
         if (activeClip) {
-            double frameInterval = 1.0 / activeClip->fps;
-            auto elapsed = std::chrono::duration<double>(now - activeClip->lastFrameTime).count();
+            const uint8_t* frame = activeClip->getCurrentFrame();
 
-            if (elapsed >= frameInterval) {
-                activeClip->lastFrameTime = now;
+            if (frame) {
+                // Extract each panel's region and send
+                for (size_t i = 0; i < config.panels.size(); i++) {
+                    const auto& panel = config.panels[i];
 
-                const uint8_t* frame = activeClip->player->nextFrame();
-                if (frame) {
-                    // Extract each panel's region and send
-                    for (size_t i = 0; i < config.panels.size(); i++) {
-                        const auto& panel = config.panels[i];
-
-                        // Throttle: skip this panel if max_fps is set and interval hasn't elapsed
-                        if (panel.max_fps > 0) {
-                            double minInterval = 1.0 / panel.max_fps;
-                            auto sinceLastSend = std::chrono::duration<double>(now - lastPanelSend[i]).count();
-                            if (sinceLastSend < minInterval) continue;
-                        }
-                        lastPanelSend[i] = now;
-
-                        extractRegion(frame, config.video_width,
-                                      panel.src_x, panel.src_y,
-                                      panel.src_w, panel.src_h,
-                                      regionBuffers[i].data());
-                        if (panel.type == "ble" && bleSenders[i]) {
-                            bleSenders[i]->sendFrame(regionBuffers[i].data(), panel.src_w, panel.src_h);
-                        } else if (panel.type == "ble_udp" && senders[i]) {
-                            senders[i]->sendRaw(regionBuffers[i].data(), panel.src_w, panel.src_h);
-                        } else if (senders[i]) {
-                            senders[i]->send(regionBuffers[i].data(), panel.src_w, panel.src_h);
-                        }
+                    // Throttle: skip this panel if max_fps is set and interval hasn't elapsed
+                    if (panel.max_fps > 0) {
+                        double minInterval = 1.0 / panel.max_fps;
+                        auto sinceLastSend = std::chrono::duration<double>(now - lastPanelSend[i]).count();
+                        if (sinceLastSend < minInterval) continue;
                     }
-                } else {
-                    // Clip finished - send black frame to each panel and clear
-                    for (size_t i = 0; i < config.panels.size(); i++) {
-                        if (config.panels[i].type == "ble" && bleSenders[i]) {
-                            bleSenders[i]->sendBlack(config.panels[i].src_w, config.panels[i].src_h);
-                        } else if (config.panels[i].type == "ble_udp" && senders[i]) {
-                            std::vector<uint8_t> black(config.panels[i].src_w * config.panels[i].src_h * 3, 0);
-                            senders[i]->sendRaw(black.data(), config.panels[i].src_w, config.panels[i].src_h);
-                        } else if (senders[i]) {
-                            senders[i]->sendBlack(config.panels[i].src_w, config.panels[i].src_h);
-                        }
+                    lastPanelSend[i] = now;
+
+                    extractRegion(frame, config.video_width,
+                                  panel.src_x, panel.src_y,
+                                  panel.src_w, panel.src_h,
+                                  regionBuffers[i].data());
+                    if (panel.type == "ble" && bleSenders[i]) {
+                        bleSenders[i]->sendFrame(regionBuffers[i].data(), panel.src_w, panel.src_h);
+                    } else if (panel.type == "ble_udp" && senders[i]) {
+                        senders[i]->sendRaw(regionBuffers[i].data(), panel.src_w, panel.src_h);
+                    } else if (senders[i]) {
+                        senders[i]->send(regionBuffers[i].data(), panel.src_w, panel.src_h);
                     }
-                    if (audioPlayer.isInitialized()) {
-                        audioPlayer.flush();
-                        audioPlayer.stopClip();
-                    }
-                    std::cerr << "Clip finished: " << activeClip->clipName << std::endl;
-                    activeClip.reset();
                 }
+            } else if (activeClip->isFinished()) {
+                std::cerr << "Clip finished: " << activeClipName << std::endl;
+                activeClip.reset();
+                activeClipName.clear();
+                sendBlackToAll();
             }
         }
 
@@ -408,7 +360,7 @@ int main(int argc, char* argv[]) {
             ps.port = config.panels[i].port;
             if (config.panels[i].type == "ble" && bleSenders[i]) {
                 ps.framesSent = bleSenders[i]->getFramesSent();
-                ps.bytesSent = 0;  // BLE sender doesn't track bytes
+                ps.bytesSent = 0;
                 ps.enabled = bleSenders[i]->isConnected();
             } else if (senders[i]) {
                 ps.framesSent = senders[i]->getFramesSent();
@@ -419,36 +371,35 @@ int main(int argc, char* argv[]) {
                 ps.bytesSent = 0;
                 ps.enabled = false;
             }
-            ps.activeClip = activeClip ? activeClip->clipName : "";
+            ps.activeClip = activeClip ? activeClipName : "";
             panelStatus.push_back(ps);
         }
         statusServer.updatePanelStatus(panelStatus);
 
-        // Update MIDI device name (may connect later)
         if (midiInput.isRunning()) {
             statusServer.setMidiDevice(midiInput.getDeviceName());
         }
 
-        // Sleep to avoid busy-waiting (1ms resolution is fine for video playback)
+        // Sleep to avoid busy-waiting (1ms is fine — we're not decoding here anymore)
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
 
     // Cleanup
     std::cerr << "\nShutting down..." << std::endl;
 
-    // Restore terminal
     if (testMode) {
         tcsetattr(STDIN_FILENO, TCSANOW, &oldTerm);
     }
 
-    // Send black to all panels and stop BLE senders
-    for (size_t i = 0; i < config.panels.size(); i++) {
-        if (config.panels[i].type == "ble" && bleSenders[i]) {
-            bleSenders[i]->sendBlack(config.panels[i].src_w, config.panels[i].src_h);
-            bleSenders[i]->stop();
-        } else if (senders[i]) {
-            senders[i]->sendBlack(config.panels[i].src_w, config.panels[i].src_h);
-        }
+    if (activeClip) {
+        activeClip->stop();
+        activeClip.reset();
+    }
+
+    sendBlackToAll();
+
+    for (size_t i = 0; i < bleSenders.size(); i++) {
+        if (bleSenders[i]) bleSenders[i]->stop();
     }
 
     audioPlayer.close();

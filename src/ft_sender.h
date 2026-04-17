@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <atomic>
 #include <vector>
+#include <netinet/in.h>
 
 class FTSender {
 public:
@@ -47,7 +48,8 @@ public:
 
 private:
     int m_socket;
-    struct sockaddr_in* m_destAddr;
+    struct sockaddr_in m_destAddr;
+    bool m_hasAddr;
     std::atomic<bool> m_enabled;
     std::atomic<uint64_t> m_framesSent;
     std::atomic<uint64_t> m_bytesSent;

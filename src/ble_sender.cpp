@@ -28,70 +28,24 @@ static const char* DBUS_PROP_IFACE = "org.freedesktop.DBus.Properties";
 static const char* BLUEZ_DEVICE_IFACE = "org.bluez.Device1";
 static const char* BLUEZ_CHAR_IFACE   = "org.bluez.GattCharacteristic1";
 
-// Simple 5x7 digit font for debug counter (digits 0-9)
-static const uint8_t DIGIT_FONT[10][7] = {
-    {0x0E,0x11,0x13,0x15,0x19,0x11,0x0E}, // 0
-    {0x04,0x0C,0x04,0x04,0x04,0x04,0x0E}, // 1
-    {0x0E,0x11,0x01,0x06,0x08,0x10,0x1F}, // 2
-    {0x0E,0x11,0x01,0x06,0x01,0x11,0x0E}, // 3
-    {0x02,0x06,0x0A,0x12,0x1F,0x02,0x02}, // 4
-    {0x1F,0x10,0x1E,0x01,0x01,0x11,0x0E}, // 5
-    {0x06,0x08,0x10,0x1E,0x11,0x11,0x0E}, // 6
-    {0x1F,0x01,0x02,0x04,0x08,0x08,0x08}, // 7
-    {0x0E,0x11,0x11,0x0E,0x11,0x11,0x0E}, // 8
-    {0x0E,0x11,0x11,0x0F,0x01,0x02,0x0C}, // 9
-};
-
-// Draw a digit at (ox, oy) with scale into an RGB buffer
-static void drawDigit(uint8_t* rgb, int bufW, int bufH, int digit, int ox, int oy, int scale,
-                      uint8_t r, uint8_t g, uint8_t b) {
-    if (digit < 0 || digit > 9) return;
-    for (int row = 0; row < 7; row++) {
-        for (int col = 0; col < 5; col++) {
-            if (DIGIT_FONT[digit][row] & (0x10 >> col)) {
-                for (int sy = 0; sy < scale; sy++) {
-                    for (int sx = 0; sx < scale; sx++) {
-                        int px = ox + col * scale + sx;
-                        int py = oy + row * scale + sy;
-                        if (px >= 0 && px < bufW && py >= 0 && py < bufH) {
-                            int idx = (py * bufW + px) * 3;
-                            rgb[idx] = r; rgb[idx+1] = g; rgb[idx+2] = b;
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-// Render a number into an RGB buffer (right-aligned)
-static void drawNumber(uint8_t* rgb, int bufW, int bufH, int number, int scale,
-                       uint8_t r, uint8_t g, uint8_t b) {
-    char str[16];
-    snprintf(str, sizeof(str), "%d", number);
-    int len = (int)strlen(str);
-    int charW = 5 * scale + scale; // digit width + spacing
-    int totalW = len * charW - scale;
-    int ox = (bufW - totalW) / 2;
-    int oy = (bufH - 7 * scale) / 2;
-    for (int i = 0; i < len; i++) {
-        drawDigit(rgb, bufW, bufH, str[i] - '0', ox + i * charW, oy, scale, r, g, b);
-    }
-}
-
 // CRC32 (same table as Python's binascii.crc32)
-static uint32_t crc32(const uint8_t* data, size_t len) {
-    static uint32_t table[256];
-    static bool tableReady = false;
-    if (!tableReady) {
+static const uint32_t* crc32_table() {
+    static uint32_t table[256] = {};
+    static bool init = [&]() {
         for (uint32_t i = 0; i < 256; i++) {
             uint32_t c = i;
             for (int j = 0; j < 8; j++)
                 c = (c & 1) ? (0xEDB88320 ^ (c >> 1)) : (c >> 1);
             table[i] = c;
         }
-        tableReady = true;
-    }
+        return true;
+    }();
+    (void)init;
+    return table;
+}
+
+static uint32_t crc32(const uint8_t* data, size_t len) {
+    const uint32_t* table = crc32_table();
     uint32_t crc = 0xFFFFFFFF;
     for (size_t i = 0; i < len; i++)
         crc = table[(crc ^ data[i]) & 0xFF] ^ (crc >> 8);
