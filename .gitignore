@@ -19,3 +19,7 @@ pypixelcolor/
 .claude/
 build/
 .DS_Store
+
+# Deploy output (binaries + bundled libs)
+deploy-macos/
+deploy-macos.zip
