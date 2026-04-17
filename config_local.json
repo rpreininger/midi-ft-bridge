@@ -8,18 +8,10 @@
   "clips_dir": "./clips",
   "midi_channel": 9,
   "mappings": [
-    { "note": 36, "panel": "all", "clip": "1.INTRO.mp4" },
-    { "note": 37, "panel": "all", "clip": "2.FRF.mp4" },
-    { "note": 38, "panel": "all", "clip": "3.MOON.mp4" },
-    { "note": 39, "panel": "all", "clip": "4.PIXL.mp4" },
-    { "note": 40, "panel": "all", "clip": "5.TENNIS.mp4" },
-    { "note": 41, "panel": "all", "clip": "6.NEU.mp4" },
-    { "note": 42, "panel": "all", "clip": "7.MAGNETO.mp4" },
-    { "note": 43, "panel": "all", "clip": "8.JIFFY.mp4" },
-    { "note": 44, "panel": "all", "clip": "10.SHIN.mp4" },
-    { "note": 45, "panel": "all", "clip": "11.SHRINK.mp4" },
-    { "note": 46, "panel": "all", "clip": "12.AXEL.mp4" },
-    { "note": 47, "panel": "all", "clip": "AXEL START.mp4" }
+    { "note": 36, "panel": "all", "clip": "1.mp4" },
+    { "note": 37, "panel": "all", "clip": "2.mp4" },
+    { "note": 38, "panel": "all", "clip": "3.mp4" },
+    { "note": 39, "panel": "all", "clip": "4.mp4" }
   ],
   "default_fps": 25,
   "video_width": 288,
