@@ -264,13 +264,18 @@ int main(int argc, char* argv[]) {
         renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
     }
 
-    // Create texture for the full canvas
+    // Scaled canvas: each source pixel becomes a scale x scale block
+    // with a 1px dark gap, simulating LED pixel appearance
+    int scaledW = canvasW * scale;
+    int scaledH = canvasH * scale;
+    int pixSize = scale - 1;  // lit pixel size (1px gap)
+
     SDL_Texture* texture = SDL_CreateTexture(renderer,
         SDL_PIXELFORMAT_RGB24, SDL_TEXTUREACCESS_STREAMING,
-        canvasW, canvasH);
+        scaledW, scaledH);
 
-    // Canvas pixel buffer
-    std::vector<uint8_t> canvas(canvasW * canvasH * 3, 0);
+    // Scaled canvas pixel buffer (rendered at full size, no SDL scaling)
+    std::vector<uint8_t> canvas(scaledW * scaledH * 3, 0);
 
     // Start UDP listener threads
     std::atomic<bool> running{true};
@@ -281,32 +286,21 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    // Draw panel outlines on the canvas (dark grey borders)
-    auto drawBorders = [&]() {
-        for (const auto& p : panels) {
-            // Top and bottom edges
-            for (int x = p->src_x; x < p->src_x + p->src_w && x < canvasW; x++) {
-                if (p->src_y >= 0 && p->src_y < canvasH) {
-                    int idx = (p->src_y * canvasW + x) * 3;
-                    canvas[idx] = 40; canvas[idx+1] = 40; canvas[idx+2] = 40;
-                }
-                int bottomY = p->src_y + p->src_h - 1;
-                if (bottomY >= 0 && bottomY < canvasH) {
-                    int idx = (bottomY * canvasW + x) * 3;
-                    canvas[idx] = 40; canvas[idx+1] = 40; canvas[idx+2] = 40;
-                }
-            }
-            // Left and right edges
-            for (int y = p->src_y; y < p->src_y + p->src_h && y < canvasH; y++) {
-                if (p->src_x >= 0 && p->src_x < canvasW) {
-                    int idx = (y * canvasW + p->src_x) * 3;
-                    canvas[idx] = 40; canvas[idx+1] = 40; canvas[idx+2] = 40;
-                }
-                int rightX = p->src_x + p->src_w - 1;
-                if (rightX >= 0 && rightX < canvasW) {
-                    int idx = (y * canvasW + rightX) * 3;
-                    canvas[idx] = 40; canvas[idx+1] = 40; canvas[idx+2] = 40;
-                }
+    // Render a source pixel as a (pixSize x pixSize) block in the scaled canvas.
+    // The remaining 1px gap stays black, simulating LED pixel appearance.
+    auto renderPixel = [&](int srcX, int srcY, uint8_t r, uint8_t g, uint8_t b) {
+        int baseX = srcX * scale;
+        int baseY = srcY * scale;
+        for (int dy = 0; dy < pixSize; dy++) {
+            int py = baseY + dy;
+            if (py < 0 || py >= scaledH) continue;
+            for (int dx = 0; dx < pixSize; dx++) {
+                int px = baseX + dx;
+                if (px < 0 || px >= scaledW) continue;
+                int idx = (py * scaledW + px) * 3;
+                canvas[idx] = r;
+                canvas[idx + 1] = g;
+                canvas[idx + 2] = b;
             }
         }
     };
@@ -331,29 +325,25 @@ int main(int argc, char* argv[]) {
         // Clear canvas to black
         memset(canvas.data(), 0, canvas.size());
 
-        // Blit each panel's latest frame onto the canvas
+        // Render each panel's pixels as LED blocks
         for (auto& panel : panels) {
             std::lock_guard<std::mutex> lock(panel->frameMutex);
             if (!panel->hasFrame) continue;
 
-            for (int row = 0; row < panel->src_h; row++) {
-                int destY = panel->src_y + row;
-                if (destY < 0 || destY >= canvasH) continue;
-
-                int copyW = std::min(panel->src_w, canvasW - panel->src_x);
-                if (copyW <= 0 || panel->src_x < 0) continue;
-
-                memcpy(canvas.data() + (destY * canvasW + panel->src_x) * 3,
-                       panel->frameBuffer.data() + row * panel->src_w * 3,
-                       copyW * 3);
+            for (int y = 0; y < panel->src_h; y++) {
+                for (int x = 0; x < panel->src_w; x++) {
+                    int srcIdx = (y * panel->src_w + x) * 3;
+                    renderPixel(
+                        panel->src_x + x, panel->src_y + y,
+                        panel->frameBuffer[srcIdx],
+                        panel->frameBuffer[srcIdx + 1],
+                        panel->frameBuffer[srcIdx + 2]);
+                }
             }
         }
 
-        // Draw panel borders
-        drawBorders();
-
-        // Update texture and render
-        SDL_UpdateTexture(texture, nullptr, canvas.data(), canvasW * 3);
+        // Update texture and render (canvas is already at final resolution)
+        SDL_UpdateTexture(texture, nullptr, canvas.data(), scaledW * 3);
         SDL_RenderClear(renderer);
         SDL_RenderCopy(renderer, texture, nullptr, nullptr);
         SDL_RenderPresent(renderer);
