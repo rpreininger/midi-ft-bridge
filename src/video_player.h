@@ -47,8 +47,8 @@ public:
     // Get the PTS of the last frame returned by getFrameAtTime().
     double getLastFramePTS() const { return m_lastPTS; }
 
-    // Check if decode has finished (all frames consumed).
-    bool isFinished() const { return m_finished && m_readIdx >= m_writeCount; }
+    // Check if decode has finished and all frames have been consumed.
+    bool isFinished() const { return m_finished && (m_writeCount - m_readCount) <= 0; }
 
     // Get the clip's FPS
     double getFPS() const;

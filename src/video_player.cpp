@@ -247,46 +247,56 @@ const uint8_t* VideoPlayer::getFrameAtTime(double timeSec) {
 
     int available = m_writeCount - m_readCount;
     if (available <= 0) {
-        if (m_finished) return nullptr;
+        if (m_finished) {
+            // No more frames in buffer and decoder is done
+            return (m_lastPTS >= 0) ? m_currentFrame.rgb.data() : nullptr;
+        }
         // Wait briefly for a frame to become available
         m_bufNotEmpty.wait_for(lock, std::chrono::milliseconds(2), [&] {
             return (m_writeCount - m_readCount) > 0 || m_finished;
         });
         available = m_writeCount - m_readCount;
-        if (available <= 0) return nullptr;
+        if (available <= 0) {
+            // Still nothing — return last shown frame if we have one
+            return (m_lastPTS >= 0) ? m_currentFrame.rgb.data() : nullptr;
+        }
     }
 
-    // Consume all frames up to and including the one closest to timeSec.
-    // This drops frames that are too old (video was slower than audio).
-    int bestSlot = m_readIdx;
+    // Find the best frame: the latest one with PTS <= timeSec.
+    // Frames before it are dropped (too old). Frames after it stay in the buffer.
+    int bestIdx = -1;
     int consumed = 0;
 
     for (int i = 0; i < available; i++) {
         int slot = (m_readIdx + i) % FRAME_BUF_SIZE;
         double framePTS = m_frameBuf[slot].pts;
 
-        // If this frame is still in the future, stop — use the previous one
+        // If this frame is in the future, stop — don't consume it
         if (framePTS >= 0 && framePTS > timeSec + 0.001) {
             break;
         }
 
-        bestSlot = slot;
-        consumed = i + 1;
+        bestIdx = i;
+        consumed = i + 1;  // consume this frame and all before it
     }
 
-    // If no frames were consumed (all are in the future), show the first available
-    if (consumed == 0) {
-        bestSlot = m_readIdx;
-        consumed = 1;
+    // No frame ready yet (all are in the future)
+    if (bestIdx < 0) {
+        // Return the last shown frame if we have one, otherwise wait
+        return (m_lastPTS >= 0) ? m_currentFrame.rgb.data() : nullptr;
     }
 
-    // Copy the best frame to the stable output buffer
-    memcpy(m_currentFrame.rgb.data(), m_frameBuf[bestSlot].rgb.data(),
-           m_outWidth * m_outHeight * 3);
-    m_currentFrame.pts = m_frameBuf[bestSlot].pts;
-    m_lastPTS = m_currentFrame.pts;
+    int bestSlot = (m_readIdx + bestIdx) % FRAME_BUF_SIZE;
 
-    // Advance the read pointer, freeing ring buffer slots
+    // Only copy if this is a new frame (different from what we're already showing)
+    if (m_frameBuf[bestSlot].pts != m_lastPTS) {
+        memcpy(m_currentFrame.rgb.data(), m_frameBuf[bestSlot].rgb.data(),
+               m_outWidth * m_outHeight * 3);
+        m_currentFrame.pts = m_frameBuf[bestSlot].pts;
+        m_lastPTS = m_currentFrame.pts;
+    }
+
+    // Advance the read pointer past consumed frames, freeing ring buffer slots
     m_readIdx = (m_readIdx + consumed) % FRAME_BUF_SIZE;
     m_readCount += consumed;
 
