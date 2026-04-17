@@ -57,7 +57,7 @@ elseif(APPLE)
 
     set(PLATFORM_SOURCES
         src/midi_input_stub.cpp
-        src/audio_player_stub.cpp
+        src/audio_player_macos.cpp
         src/ble_sender_stub.cpp
     )
 
@@ -66,7 +66,8 @@ elseif(APPLE)
     set(FFMPEG_INCLUDE_DIRS ${LIBAV_INCLUDE_DIRS})
 
     set(PLATFORM_INCLUDE_DIRS "")
-    set(PLATFORM_LIBRARIES ${LIBAV_LIBRARIES} pthread)
+    set(PLATFORM_LIBRARIES ${LIBAV_LIBRARIES} pthread
+        "-framework AudioToolbox" "-framework CoreFoundation")
 
     # SDL2 panel viewer (macOS only)
     pkg_check_modules(SDL2 sdl2)

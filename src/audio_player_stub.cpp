@@ -54,3 +54,6 @@ void AudioPlayer::close() {}
 void AudioPlayer::writerThread() {}
 void AudioPlayer::decodeAndBuffer(AVFrame* frame) { (void)frame; }
 void AudioPlayer::closeStream() {}
+size_t AudioPlayer::pullFrames(float* dst, size_t maxFrames) {
+    (void)dst; (void)maxFrames; return 0;
+}

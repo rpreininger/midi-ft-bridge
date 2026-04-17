@@ -17,6 +17,6 @@
   "video_width": 288,
   "video_height": 128,
   "web_port": 8080,
-  "audio_device": "",
+  "audio_device": "default",
   "debug": 0
 }

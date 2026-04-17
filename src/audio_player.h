@@ -57,6 +57,10 @@ public:
 
     int getSampleRate() const { return m_sampleRate; }
 
+    // Pull PCM samples from ring buffer into dst. Returns frames written.
+    // Used by platform audio callbacks (CoreAudio) to fill output buffers.
+    size_t pullFrames(float* dst, size_t maxFrames);
+
 private:
     void writerThread();
     void decodeAndBuffer(AVFrame* frame);
