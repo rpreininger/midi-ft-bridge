@@ -241,35 +241,64 @@ int main(int argc, char* argv[]) {
     }
 
     // Panel gap: extra black pixels between panels to simulate physical separation
-    int panelGap = scale * 2;  // gap in screen pixels between panels
+    int panelGap = scale * 2;
 
-    // Find unique panel X and Y edges to know where to insert gaps
-    std::vector<int> xEdges, yEdges;
-    for (const auto& p : panels) {
-        if (p->src_x > 0 && std::find(xEdges.begin(), xEdges.end(), p->src_x) == xEdges.end())
-            xEdges.push_back(p->src_x);
-        if (p->src_y > 0 && std::find(yEdges.begin(), yEdges.end(), p->src_y) == yEdges.end())
-            yEdges.push_back(p->src_y);
+    // Compute each panel's screen origin by placing them with gaps between
+    // adjacent panels. Panels that share an edge get a gap between them.
+    struct PanelLayout {
+        int screenOriginX;
+        int screenOriginY;
+    };
+    std::vector<PanelLayout> panelLayouts(panels.size());
+
+    // For each panel, find how many distinct panels are to its left/above
+    // at its specific position (not globally)
+    for (size_t i = 0; i < panels.size(); i++) {
+        int gapsX = 0, gapsY = 0;
+        int px = panels[i]->src_x;
+        int py = panels[i]->src_y;
+
+        // Count how many other panels end exactly where this one starts (horizontal gaps)
+        for (size_t j = 0; j < panels.size(); j++) {
+            if (j == i) continue;
+            int otherRight = panels[j]->src_x + panels[j]->src_w;
+            if (otherRight > 0 && otherRight <= px) {
+                // There's a panel boundary at or before our x — count unique boundaries
+                gapsX = std::max(gapsX, (int)std::count_if(panels.begin(), panels.end(),
+                    [&](const auto& p) {
+                        int r = p->src_x + p->src_w;
+                        return r > 0 && r <= px;
+                    }));
+                break;
+            }
+        }
+
+        // Count vertical gaps: only if there's a panel boundary at this Y
+        // within the same X column as this panel
+        for (size_t j = 0; j < panels.size(); j++) {
+            if (j == i) continue;
+            int otherBottom = panels[j]->src_y + panels[j]->src_h;
+            // Only count if the other panel overlaps our X range
+            bool xOverlap = panels[j]->src_x < px + panels[i]->src_w &&
+                            panels[j]->src_x + panels[j]->src_w > px;
+            if (xOverlap && otherBottom > 0 && otherBottom <= py) {
+                gapsY++;
+            }
+        }
+
+        panelLayouts[i].screenOriginX = px * scale + gapsX * panelGap;
+        panelLayouts[i].screenOriginY = py * scale + gapsY * panelGap;
     }
-    std::sort(xEdges.begin(), xEdges.end());
-    std::sort(yEdges.begin(), yEdges.end());
 
-    // Compute screen offset for a source coordinate (adds gap at each panel edge)
-    auto screenX = [&](int srcX) -> int {
-        int gaps = 0;
-        for (int edge : xEdges) { if (srcX >= edge) gaps++; else break; }
-        return srcX * scale + gaps * panelGap;
-    };
-    auto screenY = [&](int srcY) -> int {
-        int gaps = 0;
-        for (int edge : yEdges) { if (srcY >= edge) gaps++; else break; }
-        return srcY * scale + gaps * panelGap;
-    };
+    // Calculate total scaled canvas size from panel extents
+    int scaledW = 0, scaledH = 0;
+    for (size_t i = 0; i < panels.size(); i++) {
+        int right = panelLayouts[i].screenOriginX + panels[i]->src_w * scale;
+        int bottom = panelLayouts[i].screenOriginY + panels[i]->src_h * scale;
+        scaledW = std::max(scaledW, right);
+        scaledH = std::max(scaledH, bottom);
+    }
 
-    // Scaled canvas: each source pixel becomes a scale x scale block
-    // with a 1px dark gap, simulating LED pixel appearance
-    int scaledW = screenX(canvasW);
-    int scaledH = screenY(canvasH);
     int pixSize = scale - 1;  // lit pixel size (1px gap)
 
     // Initialize SDL
@@ -312,12 +341,9 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    // Render a source pixel as a (pixSize x pixSize) block in the scaled canvas.
+    // Render a pixel at screen position as a (pixSize x pixSize) block.
     // The remaining 1px gap stays black, simulating LED pixel appearance.
-    // Panel gaps are added automatically via screenX/screenY.
-    auto renderPixel = [&](int srcX, int srcY, uint8_t r, uint8_t g, uint8_t b) {
-        int baseX = screenX(srcX);
-        int baseY = screenY(srcY);
+    auto renderPixel = [&](int baseX, int baseY, uint8_t r, uint8_t g, uint8_t b) {
         for (int dy = 0; dy < pixSize; dy++) {
             int py = baseY + dy;
             if (py < 0 || py >= scaledH) continue;
@@ -352,16 +378,20 @@ int main(int argc, char* argv[]) {
         // Clear canvas to black
         memset(canvas.data(), 0, canvas.size());
 
-        // Render each panel's pixels as LED blocks
-        for (auto& panel : panels) {
+        // Render each panel's pixels as LED blocks at their screen positions
+        for (size_t pi = 0; pi < panels.size(); pi++) {
+            auto& panel = panels[pi];
             std::lock_guard<std::mutex> lock(panel->frameMutex);
             if (!panel->hasFrame) continue;
+
+            int ox = panelLayouts[pi].screenOriginX;
+            int oy = panelLayouts[pi].screenOriginY;
 
             for (int y = 0; y < panel->src_h; y++) {
                 for (int x = 0; x < panel->src_w; x++) {
                     int srcIdx = (y * panel->src_w + x) * 3;
                     renderPixel(
-                        panel->src_x + x, panel->src_y + y,
+                        ox + x * scale, oy + y * scale,
                         panel->frameBuffer[srcIdx],
                         panel->frameBuffer[srcIdx + 1],
                         panel->frameBuffer[srcIdx + 2]);
