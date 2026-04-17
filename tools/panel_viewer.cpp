@@ -240,6 +240,38 @@ int main(int argc, char* argv[]) {
                   << " port " << p->port << std::endl;
     }
 
+    // Panel gap: extra black pixels between panels to simulate physical separation
+    int panelGap = scale * 2;  // gap in screen pixels between panels
+
+    // Find unique panel X and Y edges to know where to insert gaps
+    std::vector<int> xEdges, yEdges;
+    for (const auto& p : panels) {
+        if (p->src_x > 0 && std::find(xEdges.begin(), xEdges.end(), p->src_x) == xEdges.end())
+            xEdges.push_back(p->src_x);
+        if (p->src_y > 0 && std::find(yEdges.begin(), yEdges.end(), p->src_y) == yEdges.end())
+            yEdges.push_back(p->src_y);
+    }
+    std::sort(xEdges.begin(), xEdges.end());
+    std::sort(yEdges.begin(), yEdges.end());
+
+    // Compute screen offset for a source coordinate (adds gap at each panel edge)
+    auto screenX = [&](int srcX) -> int {
+        int gaps = 0;
+        for (int edge : xEdges) { if (srcX >= edge) gaps++; else break; }
+        return srcX * scale + gaps * panelGap;
+    };
+    auto screenY = [&](int srcY) -> int {
+        int gaps = 0;
+        for (int edge : yEdges) { if (srcY >= edge) gaps++; else break; }
+        return srcY * scale + gaps * panelGap;
+    };
+
+    // Scaled canvas: each source pixel becomes a scale x scale block
+    // with a 1px dark gap, simulating LED pixel appearance
+    int scaledW = screenX(canvasW);
+    int scaledH = screenY(canvasH);
+    int pixSize = scale - 1;  // lit pixel size (1px gap)
+
     // Initialize SDL
     if (SDL_Init(SDL_INIT_VIDEO) < 0) {
         std::cerr << "SDL_Init failed: " << SDL_GetError() << std::endl;
@@ -249,7 +281,7 @@ int main(int argc, char* argv[]) {
     SDL_Window* window = SDL_CreateWindow(
         "MIDI-FT Panel Viewer",
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-        canvasW * scale, canvasH * scale,
+        scaledW, scaledH,
         SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
 
     if (!window) {
@@ -263,12 +295,6 @@ int main(int argc, char* argv[]) {
     if (!renderer) {
         renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
     }
-
-    // Scaled canvas: each source pixel becomes a scale x scale block
-    // with a 1px dark gap, simulating LED pixel appearance
-    int scaledW = canvasW * scale;
-    int scaledH = canvasH * scale;
-    int pixSize = scale - 1;  // lit pixel size (1px gap)
 
     SDL_Texture* texture = SDL_CreateTexture(renderer,
         SDL_PIXELFORMAT_RGB24, SDL_TEXTUREACCESS_STREAMING,
@@ -288,9 +314,10 @@ int main(int argc, char* argv[]) {
 
     // Render a source pixel as a (pixSize x pixSize) block in the scaled canvas.
     // The remaining 1px gap stays black, simulating LED pixel appearance.
+    // Panel gaps are added automatically via screenX/screenY.
     auto renderPixel = [&](int srcX, int srcY, uint8_t r, uint8_t g, uint8_t b) {
-        int baseX = srcX * scale;
-        int baseY = srcY * scale;
+        int baseX = screenX(srcX);
+        int baseY = screenY(srcY);
         for (int dy = 0; dy < pixSize; dy++) {
             int py = baseY + dy;
             if (py < 0 || py >= scaledH) continue;
