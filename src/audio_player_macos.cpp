@@ -1,7 +1,6 @@
 // ====================================================================
-//  Audio Player - CoreAudio implementation for macOS
-//  Uses AudioQueue for PCM output with FFmpeg audio decoding.
-//  The AudioQueue callback pulls from the PCM ring buffer directly.
+//  Audio Player - SDL2 audio implementation for macOS
+//  Uses SDL_QueueAudio (push model) — dead simple, no callbacks.
 // ====================================================================
 
 #include "audio_player.h"
@@ -9,7 +8,7 @@
 #include <cstring>
 #include <algorithm>
 
-#include <AudioToolbox/AudioToolbox.h>
+#include <SDL.h>
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -17,56 +16,15 @@ extern "C" {
 #include <libswresample/swresample.h>
 }
 
-static constexpr size_t RING_BUF_SECONDS = 10;
 static constexpr int OUT_CHANNELS = 2;
-static constexpr int NUM_AQ_BUFFERS = 3;
-static constexpr int AQ_BUFFER_FRAMES = 2048;
 
-struct CoreAudioState {
-    AudioQueueRef queue;
-    AudioQueueBufferRef buffers[NUM_AQ_BUFFERS];
-    AudioPlayer* player;
+// SDL audio device ID stored as opaque pointer via m_pcm.
+// totalBytesQueued is cumulative across the lifetime of the current stream;
+// combined with SDL_GetQueuedAudioSize() it gives the real playback position.
+struct SDLAudioState {
+    SDL_AudioDeviceID device;
+    std::atomic<size_t> totalBytesQueued{0};
 };
-
-// AudioQueue callback: pull PCM data from the player's ring buffer
-static void aqOutputCallback(void* userData, AudioQueueRef queue, AudioQueueBufferRef buffer) {
-    auto* player = static_cast<AudioPlayer*>(userData);
-
-    size_t framesRequested = buffer->mAudioDataBytesCapacity / (OUT_CHANNELS * sizeof(float));
-    auto* dst = static_cast<float*>(buffer->mAudioData);
-
-    size_t framesWritten = player->pullFrames(dst, framesRequested);
-
-    // Pad with silence if we didn't have enough data
-    if (framesWritten < framesRequested) {
-        memset(dst + framesWritten * OUT_CHANNELS, 0,
-               (framesRequested - framesWritten) * OUT_CHANNELS * sizeof(float));
-    }
-
-    buffer->mAudioDataByteSize = framesRequested * OUT_CHANNELS * sizeof(float);
-    AudioQueueEnqueueBuffer(queue, buffer, 0, nullptr);
-}
-
-size_t AudioPlayer::pullFrames(float* dst, size_t maxFrames) {
-    std::lock_guard<std::mutex> lock(m_bufMutex);
-
-    if (!m_playing || !m_prefilled) {
-        return 0;
-    }
-
-    size_t availFrames = m_available / OUT_CHANNELS;
-    size_t framesWritten = std::min(availFrames, maxFrames);
-    size_t samplesToRead = framesWritten * OUT_CHANNELS;
-
-    for (size_t i = 0; i < samplesToRead; i++) {
-        dst[i] = m_ringBuf[m_readPos];
-        m_readPos = (m_readPos + 1) % m_ringCapacity;
-    }
-    m_available -= samplesToRead;
-    m_totalWritten += framesWritten;
-
-    return framesWritten;
-}
 
 AudioPlayer::AudioPlayer()
     : m_pcm(nullptr)
@@ -93,14 +51,20 @@ AudioPlayer::~AudioPlayer() {
 bool AudioPlayer::init(const std::string& device) {
     (void)device;
 
-    auto* state = new CoreAudioState{};
-    state->queue = nullptr;
-    state->player = this;
+    if (SDL_Init(SDL_INIT_AUDIO) < 0) {
+        std::cerr << "AudioPlayer: SDL_Init(AUDIO) failed: " << SDL_GetError() << std::endl;
+        return false;
+    }
 
+    auto* state = new SDLAudioState{};
+    state->device = 0;
     m_pcm = reinterpret_cast<snd_pcm_t*>(state);
     m_running = true;
 
-    std::cerr << "AudioPlayer: CoreAudio initialized" << std::endl;
+    // Start clock thread
+    m_thread = std::thread(&AudioPlayer::writerThread, this);
+
+    std::cerr << "AudioPlayer: SDL2 audio initialized" << std::endl;
     return true;
 }
 
@@ -110,7 +74,7 @@ bool AudioPlayer::openStream(AVCodecParameters* codecpar, int timeBaseNum, int t
 
     closeStream();
 
-    auto* state = reinterpret_cast<CoreAudioState*>(m_pcm);
+    auto* state = reinterpret_cast<SDLAudioState*>(m_pcm);
     if (!state) return false;
 
     // Find decoder
@@ -161,52 +125,35 @@ bool AudioPlayer::openStream(AVCodecParameters* codecpar, int timeBaseNum, int t
         return false;
     }
 
-    // Create AudioQueue
-    AudioStreamBasicDescription fmt = {};
-    fmt.mSampleRate = m_sampleRate;
-    fmt.mFormatID = kAudioFormatLinearPCM;
-    fmt.mFormatFlags = kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked;
-    fmt.mBitsPerChannel = 32;
-    fmt.mChannelsPerFrame = OUT_CHANNELS;
-    fmt.mFramesPerPacket = 1;
-    fmt.mBytesPerFrame = OUT_CHANNELS * sizeof(float);
-    fmt.mBytesPerPacket = fmt.mBytesPerFrame;
+    // Open SDL audio device
+    SDL_AudioSpec want = {}, have = {};
+    want.freq = m_sampleRate;
+    want.format = AUDIO_F32SYS;
+    want.channels = OUT_CHANNELS;
+    want.samples = 2048;
+    want.callback = nullptr;  // push mode (SDL_QueueAudio)
 
-    OSStatus err = AudioQueueNewOutput(&fmt, aqOutputCallback, this,
-                                       nullptr, nullptr, 0, &state->queue);
-    if (err != noErr) {
-        std::cerr << "AudioPlayer: AudioQueueNewOutput failed: " << err << std::endl;
+    state->device = SDL_OpenAudioDevice(nullptr, 0, &want, &have, 0);
+    if (state->device == 0) {
+        std::cerr << "AudioPlayer: SDL_OpenAudioDevice failed: " << SDL_GetError() << std::endl;
         closeStream();
         return false;
     }
 
-    // Allocate and prime AudioQueue buffers
-    UInt32 bufferSize = AQ_BUFFER_FRAMES * fmt.mBytesPerFrame;
-    for (int i = 0; i < NUM_AQ_BUFFERS; i++) {
-        AudioQueueAllocateBuffer(state->queue, bufferSize, &state->buffers[i]);
-        memset(state->buffers[i]->mAudioData, 0, bufferSize);
-        state->buffers[i]->mAudioDataByteSize = bufferSize;
-        AudioQueueEnqueueBuffer(state->queue, state->buffers[i], 0, nullptr);
-    }
-
-    // Allocate ring buffer
-    m_ringCapacity = m_sampleRate * OUT_CHANNELS * RING_BUF_SECONDS;
-    m_ringBuf.resize(m_ringCapacity);
-    m_readPos = 0;
-    m_writePos = 0;
-    m_available = 0;
-    m_prefilled = false;
-    m_totalWritten = 0;
+    m_sampleRate = have.freq;
     m_playing = true;
+    m_prefilled = true;  // no prefill needed with SDL push model
     m_streamStart = std::chrono::steady_clock::now();
+    m_totalWritten = 0;
+    state->totalBytesQueued = 0;
 
-    // Start AudioQueue playback
-    AudioQueueStart(state->queue, nullptr);
+    // Unpause SDL audio
+    SDL_PauseAudioDevice(state->device, 0);
 
     std::cerr << "AudioPlayer: Stream opened ("
               << m_codecCtx->sample_rate << "Hz "
               << m_codecCtx->ch_layout.nb_channels << "ch -> "
-              << m_sampleRate << "Hz " << OUT_CHANNELS << "ch FLOAT, CoreAudio)" << std::endl;
+              << m_sampleRate << "Hz " << OUT_CHANNELS << "ch FLOAT, SDL2)" << std::endl;
 
     return true;
 }
@@ -252,52 +199,29 @@ void AudioPlayer::decodeAndBuffer(AVFrame* frame) {
                                 (const uint8_t**)frame->extended_data, frame->nb_samples);
     if (converted <= 0) return;
 
-    size_t samplesTotal = converted * OUT_CHANNELS;
-
-    {
-        std::lock_guard<std::mutex> lock(m_bufMutex);
-        for (size_t i = 0; i < samplesTotal; i++) {
-            if (m_available >= m_ringCapacity) {
-                m_readPos = (m_readPos + 1) % m_ringCapacity;
-                m_available--;
-            }
-            m_ringBuf[m_writePos] = m_resampleBuf[i];
-            m_writePos = (m_writePos + 1) % m_ringCapacity;
-            m_available++;
-        }
-    }
-
-    if (!m_prefilled && m_available >= (size_t)(m_sampleRate * OUT_CHANNELS)) {
-        m_prefilled = true;
+    // Push directly to SDL audio queue — no ring buffer needed
+    auto* state = reinterpret_cast<SDLAudioState*>(m_pcm);
+    if (state && state->device) {
+        uint32_t bytes = converted * OUT_CHANNELS * sizeof(float);
+        SDL_QueueAudio(state->device, m_resampleBuf.data(), bytes);
+        state->totalBytesQueued += bytes;
     }
 }
 
 void AudioPlayer::stopClip() {
     m_playing = false;
 
-    auto* state = reinterpret_cast<CoreAudioState*>(m_pcm);
-    if (state && state->queue) {
-        AudioQueueStop(state->queue, true);
-    }
-
-    {
-        std::lock_guard<std::mutex> lock(m_bufMutex);
-        m_readPos = 0;
-        m_writePos = 0;
-        m_available = 0;
+    auto* state = reinterpret_cast<SDLAudioState*>(m_pcm);
+    if (state && state->device) {
+        SDL_ClearQueuedAudio(state->device);
+        SDL_CloseAudioDevice(state->device);
+        state->device = 0;
     }
 
     closeStream();
 }
 
 void AudioPlayer::closeStream() {
-    auto* state = reinterpret_cast<CoreAudioState*>(m_pcm);
-    if (state && state->queue) {
-        AudioQueueStop(state->queue, true);
-        AudioQueueDispose(state->queue, true);
-        state->queue = nullptr;
-    }
-
     if (m_swrCtx) { swr_free(&m_swrCtx); m_swrCtx = nullptr; }
     if (m_decFrame) { av_frame_free(&m_decFrame); m_decFrame = nullptr; }
     if (m_codecCtx) { avcodec_free_context(&m_codecCtx); m_codecCtx = nullptr; }
@@ -313,18 +237,36 @@ void AudioPlayer::close() {
 
     closeStream();
 
-    auto* state = reinterpret_cast<CoreAudioState*>(m_pcm);
+    auto* state = reinterpret_cast<SDLAudioState*>(m_pcm);
     if (state) {
+        if (state->device) {
+            SDL_CloseAudioDevice(state->device);
+        }
         delete state;
         m_pcm = nullptr;
     }
 }
 
+size_t AudioPlayer::pullFrames(float* dst, size_t maxFrames) {
+    (void)dst; (void)maxFrames;
+    return 0;  // not used — SDL push model
+}
+
 void AudioPlayer::writerThread() {
-    // CoreAudio uses a callback model — the AudioQueue callback
-    // (aqOutputCallback) pulls from the ring buffer directly.
-    // This thread is only needed to wait for prefill before starting.
+    // Master clock: frames actually consumed by the SDL audio device.
+    // totalBytesQueued is cumulative; SDL_GetQueuedAudioSize() is what's still
+    // pending. The difference is what has been handed to the audio hardware.
+    const size_t bytesPerFrame = OUT_CHANNELS * sizeof(float);
     while (m_running) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        if (m_playing) {
+            auto* state = reinterpret_cast<SDLAudioState*>(m_pcm);
+            if (state && state->device) {
+                size_t queuedNow = SDL_GetQueuedAudioSize(state->device);
+                size_t totalQueued = state->totalBytesQueued.load();
+                size_t consumed = (totalQueued > queuedNow) ? (totalQueued - queuedNow) : 0;
+                m_totalWritten = consumed / bytesPerFrame;
+            }
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
 }

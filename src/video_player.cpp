@@ -14,7 +14,8 @@ extern "C" {
 }
 
 VideoPlayer::VideoPlayer()
-    : m_formatCtx(nullptr)
+    : m_demuxDone(false)
+    , m_formatCtx(nullptr)
     , m_codecCtx(nullptr)
     , m_frame(nullptr)
     , m_rgbFrame(nullptr)
@@ -45,6 +46,7 @@ bool VideoPlayer::open(const std::string& path, int outWidth, int outHeight) {
     m_outWidth = outWidth;
     m_outHeight = outHeight;
     m_finished = false;
+    m_demuxDone = false;
     m_writeIdx = 0;
     m_readIdx = 0;
     m_writeCount = 0;
@@ -141,164 +143,177 @@ bool VideoPlayer::open(const std::string& path, int outWidth, int outHeight) {
               << " -> " << outWidth << "x" << outHeight
               << " @ " << getFPS() << " fps)" << std::endl;
 
-    // Start decode-ahead thread
-    m_running = true;
-    m_thread = std::thread(&VideoPlayer::decodeThread, this);
-
     return true;
 }
 
-void VideoPlayer::decodeThread() {
+void VideoPlayer::start() {
+    // Starting threads is deferred until the caller has wired up the audio
+    // callback. Demux reads packets, forwards audio directly to the audio
+    // player, and pushes video packets into a bounded queue. Decode pulls
+    // from that queue. Keeping the two decoupled is what prevents the frame
+    // ring buffer from stalling audio playback.
+    if (m_running) return;
+    m_running = true;
+    m_decodeThread = std::thread(&VideoPlayer::decodeThread, this);
+    m_demuxThread = std::thread(&VideoPlayer::demuxThread, this);
+}
+
+void VideoPlayer::demuxThread() {
+    // Reads packets from the container as fast as the packet queue allows.
+    // Audio packets are handed to the audio callback immediately — this is
+    // what keeps the SDL audio queue filled when the video frame ring is
+    // full and the decode thread is parked in storeFrame().
     while (m_running) {
-        // Wait for space in the ring buffer
-        {
-            std::unique_lock<std::mutex> lock(m_bufMutex);
-            m_bufNotFull.wait(lock, [&] {
-                return !m_running || (m_writeCount - m_readCount) < FRAME_BUF_SIZE;
-            });
+        AVPacket* pkt = av_packet_alloc();
+        int ret = av_read_frame(m_formatCtx, pkt);
+        if (ret < 0) {
+            av_packet_free(&pkt);
+            {
+                std::lock_guard<std::mutex> lock(m_pktMutex);
+                m_demuxDone = true;
+            }
+            m_pktNotEmpty.notify_all();
+            return;
         }
 
-        if (!m_running) break;
+        if (pkt->stream_index == m_audioStreamIdx) {
+            if (m_audioCallback) m_audioCallback(pkt);
+            av_packet_free(&pkt);
+            continue;
+        }
 
-        // Demux and decode one frame
-        if (!decodeOneFrame()) {
+        if (pkt->stream_index != m_videoStreamIdx) {
+            av_packet_free(&pkt);
+            continue;
+        }
+
+        // Video: push into the bounded packet queue (blocks if full).
+        std::unique_lock<std::mutex> lock(m_pktMutex);
+        m_pktNotFull.wait(lock, [&] {
+            return !m_running || m_pktQueue.size() < PKT_QUEUE_MAX;
+        });
+        if (!m_running) {
+            av_packet_free(&pkt);
+            return;
+        }
+        m_pktQueue.push_back(pkt);
+        lock.unlock();
+        m_pktNotEmpty.notify_one();
+    }
+}
+
+void VideoPlayer::decodeThread() {
+    // Pulls video packets from the queue, decodes them into the frame ring
+    // buffer. Paced by the consumer via storeFrame() blocking when full.
+    auto drainDecoder = [&]() -> bool {
+        while (m_running) {
+            int ret = avcodec_receive_frame(m_codecCtx, m_frame);
+            if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) return true;
+            if (ret < 0) return false;
+            sws_scale(m_swsCtx, m_frame->data, m_frame->linesize,
+                      0, m_codecCtx->height,
+                      m_rgbFrame->data, m_rgbFrame->linesize);
+            double pts = (m_frame->pts != AV_NOPTS_VALUE)
+                ? m_frame->pts * m_videoTimeBase : -1.0;
+            if (!storeFrame(pts)) return false;
+        }
+        return false;
+    };
+
+    while (m_running) {
+        AVPacket* pkt = nullptr;
+        {
+            std::unique_lock<std::mutex> lock(m_pktMutex);
+            m_pktNotEmpty.wait(lock, [&] {
+                return !m_running || !m_pktQueue.empty() || m_demuxDone;
+            });
+            if (!m_running) return;
+
+            if (m_pktQueue.empty()) {
+                // Demux finished — flush the decoder and exit.
+                lock.unlock();
+                avcodec_send_packet(m_codecCtx, nullptr);
+                drainDecoder();
+                m_finished = true;
+                m_bufNotEmpty.notify_all();
+                return;
+            }
+
+            pkt = m_pktQueue.front();
+            m_pktQueue.pop_front();
+        }
+        m_pktNotFull.notify_one();
+
+        int ret = avcodec_send_packet(m_codecCtx, pkt);
+        av_packet_free(&pkt);
+        if (ret < 0) continue;
+
+        if (!drainDecoder()) {
             m_finished = true;
             m_bufNotEmpty.notify_all();
-            break;
+            return;
         }
     }
 }
 
-bool VideoPlayer::decodeOneFrame() {
-    while (m_running) {
-        int ret = av_read_frame(m_formatCtx, m_packet);
-        if (ret < 0) {
-            // EOF — flush the decoder
-            avcodec_send_packet(m_codecCtx, nullptr);
-            ret = avcodec_receive_frame(m_codecCtx, m_frame);
-            if (ret == 0) {
-                sws_scale(m_swsCtx, m_frame->data, m_frame->linesize,
-                          0, m_codecCtx->height,
-                          m_rgbFrame->data, m_rgbFrame->linesize);
+bool VideoPlayer::storeFrame(double pts) {
+    std::unique_lock<std::mutex> lock(m_bufMutex);
 
-                double pts = (m_frame->pts != AV_NOPTS_VALUE)
-                    ? m_frame->pts * m_videoTimeBase : -1.0;
+    m_bufNotFull.wait(lock, [&] {
+        return !m_running || (m_writeCount - m_readCount) < FRAME_BUF_SIZE;
+    });
 
-                int slot = m_writeIdx % FRAME_BUF_SIZE;
-                {
-                    std::lock_guard<std::mutex> lock(m_bufMutex);
-                    memcpy(m_frameBuf[slot].rgb.data(), m_rgbBuffer.data(),
-                           m_outWidth * m_outHeight * 3);
-                    m_frameBuf[slot].pts = pts;
-                    m_writeIdx = (m_writeIdx + 1) % FRAME_BUF_SIZE;
-                    m_writeCount++;
-                }
-                m_bufNotEmpty.notify_one();
-                return true;
-            }
-            return false;  // truly done
-        }
+    if (!m_running) return false;
 
-        // Route audio packets to the callback
-        if (m_packet->stream_index == m_audioStreamIdx && m_audioCallback) {
-            m_audioCallback(m_packet);
-            av_packet_unref(m_packet);
-            continue;
-        } else if (m_packet->stream_index != m_videoStreamIdx) {
-            av_packet_unref(m_packet);
-            continue;
-        }
+    int slot = m_writeIdx % FRAME_BUF_SIZE;
+    memcpy(m_frameBuf[slot].rgb.data(), m_rgbBuffer.data(),
+           m_outWidth * m_outHeight * 3);
+    m_frameBuf[slot].pts = pts;
+    m_writeIdx = (m_writeIdx + 1) % FRAME_BUF_SIZE;
+    m_writeCount++;
 
-        // Decode video packet
-        ret = avcodec_send_packet(m_codecCtx, m_packet);
-        av_packet_unref(m_packet);
-        if (ret < 0) continue;
-
-        ret = avcodec_receive_frame(m_codecCtx, m_frame);
-        if (ret == AVERROR(EAGAIN)) continue;
-        if (ret < 0) return false;
-
-        // Scale to RGB24
-        sws_scale(m_swsCtx, m_frame->data, m_frame->linesize,
-                  0, m_codecCtx->height,
-                  m_rgbFrame->data, m_rgbFrame->linesize);
-
-        double pts = (m_frame->pts != AV_NOPTS_VALUE)
-            ? m_frame->pts * m_videoTimeBase : -1.0;
-
-        // Write to ring buffer
-        int slot = m_writeIdx % FRAME_BUF_SIZE;
-        {
-            std::lock_guard<std::mutex> lock(m_bufMutex);
-            memcpy(m_frameBuf[slot].rgb.data(), m_rgbBuffer.data(),
-                   m_outWidth * m_outHeight * 3);
-            m_frameBuf[slot].pts = pts;
-            m_writeIdx = (m_writeIdx + 1) % FRAME_BUF_SIZE;
-            m_writeCount++;
-        }
-        m_bufNotEmpty.notify_one();
-        return true;
-    }
-    return false;
+    lock.unlock();
+    m_bufNotEmpty.notify_one();
+    return true;
 }
 
 const uint8_t* VideoPlayer::getFrameAtTime(double timeSec) {
+    // Audio-master sync: return the latest frame whose PTS <= timeSec, popping
+    // any earlier frames we've fallen behind on. Returns nullptr when there is
+    // no new frame to show (caller should keep displaying the previous one and
+    // avoid re-sending to the panels).
     std::unique_lock<std::mutex> lock(m_bufMutex);
 
-    int available = m_writeCount - m_readCount;
-    if (available <= 0) {
-        if (m_finished) {
-            // No more frames in buffer and decoder is done
-            return (m_lastPTS >= 0) ? m_currentFrame.rgb.data() : nullptr;
-        }
-        // Wait briefly for a frame to become available
-        m_bufNotEmpty.wait_for(lock, std::chrono::milliseconds(2), [&] {
-            return (m_writeCount - m_readCount) > 0 || m_finished;
-        });
-        available = m_writeCount - m_readCount;
-        if (available <= 0) {
-            // Still nothing — return last shown frame if we have one
-            return (m_lastPTS >= 0) ? m_currentFrame.rgb.data() : nullptr;
-        }
-    }
-
-    // Find the best frame: the latest one with PTS <= timeSec.
-    // Frames before it are dropped (too old). Frames after it stay in the buffer.
-    int bestIdx = -1;
-    int consumed = 0;
-
-    for (int i = 0; i < available; i++) {
-        int slot = (m_readIdx + i) % FRAME_BUF_SIZE;
-        double framePTS = m_frameBuf[slot].pts;
-
-        // If this frame is in the future, stop — don't consume it
-        if (framePTS >= 0 && framePTS > timeSec + 0.001) {
+    // Drop stale frames: while the frame AFTER the front is also already due,
+    // we're behind — discard the front and advance.
+    while ((m_writeCount - m_readCount) >= 2) {
+        int nextSlot = (m_readIdx + 1) % FRAME_BUF_SIZE;
+        double nextPTS = m_frameBuf[nextSlot].pts;
+        if (nextPTS >= 0 && nextPTS <= timeSec) {
+            m_readIdx = (m_readIdx + 1) % FRAME_BUF_SIZE;
+            m_readCount++;
+        } else {
             break;
         }
-
-        bestIdx = i;
-        consumed = i + 1;  // consume this frame and all before it
     }
 
-    // No frame ready yet (all are in the future)
-    if (bestIdx < 0) {
-        // Return the last shown frame if we have one, otherwise wait
-        return (m_lastPTS >= 0) ? m_currentFrame.rgb.data() : nullptr;
-    }
+    int available = m_writeCount - m_readCount;
+    if (available <= 0) return nullptr;
 
-    int bestSlot = (m_readIdx + bestIdx) % FRAME_BUF_SIZE;
+    int slot = m_readIdx % FRAME_BUF_SIZE;
+    double frontPTS = m_frameBuf[slot].pts;
 
-    // Only copy if this is a new frame (different from what we're already showing)
-    if (m_frameBuf[bestSlot].pts != m_lastPTS) {
-        memcpy(m_currentFrame.rgb.data(), m_frameBuf[bestSlot].rgb.data(),
-               m_outWidth * m_outHeight * 3);
-        m_currentFrame.pts = m_frameBuf[bestSlot].pts;
-        m_lastPTS = m_currentFrame.pts;
-    }
+    // Frame still in the future — not time to show it yet.
+    // (Unknown PTS (-1) is treated as "show now".)
+    if (frontPTS >= 0 && frontPTS > timeSec) return nullptr;
 
-    // Advance the read pointer past consumed frames, freeing ring buffer slots
-    m_readIdx = (m_readIdx + consumed) % FRAME_BUF_SIZE;
-    m_readCount += consumed;
+    // Consume and return.
+    memcpy(m_currentFrame.rgb.data(), m_frameBuf[slot].rgb.data(),
+           m_outWidth * m_outHeight * 3);
+    m_currentFrame.pts = frontPTS;
+    m_lastPTS = frontPTS;
+    m_readIdx = (m_readIdx + 1) % FRAME_BUF_SIZE;
+    m_readCount++;
 
     lock.unlock();
     m_bufNotFull.notify_one();
@@ -342,10 +357,18 @@ void VideoPlayer::close() {
     m_running = false;
     m_bufNotFull.notify_all();
     m_bufNotEmpty.notify_all();
+    m_pktNotFull.notify_all();
+    m_pktNotEmpty.notify_all();
 
-    if (m_thread.joinable()) {
-        m_thread.join();
+    if (m_demuxThread.joinable()) m_demuxThread.join();
+    if (m_decodeThread.joinable()) m_decodeThread.join();
+
+    // Drain any packets left in the queue.
+    for (AVPacket* p : m_pktQueue) {
+        av_packet_free(&p);
     }
+    m_pktQueue.clear();
+    m_demuxDone = false;
 
     if (m_swsCtx) { sws_freeContext(m_swsCtx); m_swsCtx = nullptr; }
     if (m_rgbFrame) { av_frame_free(&m_rgbFrame); m_rgbFrame = nullptr; }

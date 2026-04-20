@@ -43,13 +43,18 @@ bool ClipPlayer::open(const std::string& clipPath, int videoWidth, int videoHeig
             });
             m_hasAudio = true;
             m_useWallClock = false;
-            std::cerr << "ClipPlayer: Audio-master mode (synced to ALSA)" << std::endl;
+            std::cerr << "ClipPlayer: Audio-master mode" << std::endl;
         }
     }
 
     if (m_useWallClock) {
         std::cerr << "ClipPlayer: Wall-clock mode (no audio)" << std::endl;
     }
+
+    // Only now start demux/decode. If we started them during m_video.open(),
+    // the demux thread would race ahead and drop all audio packets before
+    // the callback got wired up, starving the audio clock.
+    m_video.start();
 
     m_wallClockStart = std::chrono::steady_clock::now();
     m_active = true;
@@ -59,11 +64,14 @@ bool ClipPlayer::open(const std::string& clipPath, int videoWidth, int videoHeig
 const uint8_t* ClipPlayer::getCurrentFrame() {
     if (!m_active) return nullptr;
 
-    double position = getPosition();
+    // Audio-master (or wall-clock fallback) drives the clock.
+    // VideoPlayer returns the latest frame with PTS <= clock, or nullptr when
+    // no new frame is due yet. nullptr means "keep showing the current frame";
+    // we forward it so the main loop skips a redundant panel send.
+    double clockSec = getPosition();
+    const uint8_t* frame = m_video.getFrameAtTime(clockSec);
 
-    const uint8_t* frame = m_video.getFrameAtTime(position);
     if (!frame && m_video.isFinished()) {
-        // Clip is done — flush audio
         if (m_hasAudio && m_audio) {
             m_audio->flush();
         }

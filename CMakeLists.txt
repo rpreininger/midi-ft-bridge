@@ -65,9 +65,9 @@ elseif(APPLE)
     pkg_check_modules(LIBAV REQUIRED libavformat libavcodec libswscale libswresample libavutil)
     set(FFMPEG_INCLUDE_DIRS ${LIBAV_INCLUDE_DIRS})
 
-    set(PLATFORM_INCLUDE_DIRS "")
-    set(PLATFORM_LIBRARIES ${LIBAV_LIBRARIES} pthread
-        "-framework AudioToolbox" "-framework CoreFoundation")
+    pkg_check_modules(SDL2 REQUIRED sdl2)
+    set(PLATFORM_INCLUDE_DIRS ${SDL2_INCLUDE_DIRS})
+    set(PLATFORM_LIBRARIES ${LIBAV_LIBRARIES} ${SDL2_LIBRARIES} pthread)
 
     # SDL2 panel viewer (macOS only)
     pkg_check_modules(SDL2 sdl2)
@@ -118,7 +118,7 @@ include_directories(
 add_executable(midi_ft_bridge ${SOURCES})
 
 if(APPLE)
-    target_link_directories(midi_ft_bridge PRIVATE ${LIBAV_LIBRARY_DIRS})
+    target_link_directories(midi_ft_bridge PRIVATE ${LIBAV_LIBRARY_DIRS} ${SDL2_LIBRARY_DIRS})
 endif()
 
 target_link_libraries(midi_ft_bridge ${PLATFORM_LIBRARIES})

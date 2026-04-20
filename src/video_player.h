@@ -11,6 +11,7 @@
 #include <condition_variable>
 #include <thread>
 #include <atomic>
+#include <deque>
 
 extern "C" {
 #include <libavutil/rational.h>
@@ -35,9 +36,15 @@ public:
     VideoPlayer();
     ~VideoPlayer();
 
-    // Open an MP4 file and start the decode-ahead thread.
+    // Open the file, find streams, initialise the decoder. Does NOT start
+    // the demux/decode threads — call start() once the audio callback is
+    // wired up, otherwise early audio packets will be dropped.
     // outWidth/outHeight: target resolution for output frames.
     bool open(const std::string& path, int outWidth, int outHeight);
+
+    // Start the demux + decode threads. Must be called after open() and
+    // after setAudioCallback() (if the clip has audio).
+    void start();
 
     // Get the decoded frame closest to the given time (in seconds).
     // Returns pointer to RGB24 data, or nullptr if no frames available.
@@ -69,8 +76,19 @@ public:
     void close();
 
 private:
+    void demuxThread();
     void decodeThread();
-    bool decodeOneFrame();
+    bool storeFrame(double pts);
+
+    // Video packet queue (demux -> decode). Bounded so demux can't
+    // run arbitrarily far ahead, but large enough that the audio queue
+    // stays filled when the frame ring buffer is full.
+    static constexpr size_t PKT_QUEUE_MAX = 128;
+    std::deque<AVPacket*> m_pktQueue;
+    std::mutex m_pktMutex;
+    std::condition_variable m_pktNotEmpty;
+    std::condition_variable m_pktNotFull;
+    std::atomic<bool> m_demuxDone;
 
     // FFmpeg demux/decode state
     AVFormatContext* m_formatCtx;
@@ -103,8 +121,9 @@ private:
     DecodedFrame m_currentFrame;
     double m_lastPTS;
 
-    // Decode thread
-    std::thread m_thread;
+    // Worker threads
+    std::thread m_demuxThread;
+    std::thread m_decodeThread;
     std::atomic<bool> m_running;
     std::atomic<bool> m_finished;  // decoder reached EOF
 
