@@ -32,6 +32,13 @@ public:
     // Stop playback immediately.
     void stop();
 
+    // Pause / resume. Freezes both the audio clock (via AudioPlayer) and the
+    // wall-clock fallback used by clips without audio.
+    void pause();
+    void resume();
+    void togglePause() { if (m_paused) resume(); else pause(); }
+    bool isPaused() const { return m_paused; }
+
     // Is the clip finished playing?
     bool isFinished() const;
 
@@ -54,4 +61,8 @@ private:
     // Wall-clock fallback for clips without audio
     std::chrono::steady_clock::time_point m_wallClockStart;
     bool m_useWallClock;
+
+    // Pause state (for wall-clock mode; audio mode also routes through AudioPlayer)
+    std::atomic<bool> m_paused{false};
+    std::chrono::steady_clock::time_point m_pauseStart;
 };

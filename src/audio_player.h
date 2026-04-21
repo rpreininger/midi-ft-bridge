@@ -44,6 +44,12 @@ public:
     // Stop current clip playback immediately.
     void stopClip();
 
+    // Pause / resume audio output. Clock (m_totalWritten) stops advancing
+    // while paused, so the video picker freezes on the same frame.
+    void pause();
+    void resume();
+    bool isPaused() const { return m_paused; }
+
     // Shut down ALSA device and worker thread.
     void close();
 
@@ -91,6 +97,7 @@ private:
     std::thread m_thread;
     std::atomic<bool> m_running;
     std::atomic<bool> m_playing;
+    std::atomic<bool> m_paused{false};
     std::atomic<bool> m_prefilled;  // true once ring buffer has enough data to start
     std::chrono::steady_clock::time_point m_streamStart;
     std::atomic<size_t> m_totalWritten{0};  // total frames written to ALSA (read cross-thread)

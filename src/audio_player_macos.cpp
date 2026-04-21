@@ -212,8 +212,25 @@ void AudioPlayer::decodeAndBuffer(AVFrame* frame) {
     }
 }
 
+void AudioPlayer::pause() {
+    m_paused = true;
+    auto* state = reinterpret_cast<SDLAudioState*>(m_pcm);
+    if (state && state->device) {
+        SDL_PauseAudioDevice(state->device, 1);
+    }
+}
+
+void AudioPlayer::resume() {
+    auto* state = reinterpret_cast<SDLAudioState*>(m_pcm);
+    if (state && state->device) {
+        SDL_PauseAudioDevice(state->device, 0);
+    }
+    m_paused = false;
+}
+
 void AudioPlayer::stopClip() {
     m_playing = false;
+    m_paused = false;
 
     auto* state = reinterpret_cast<SDLAudioState*>(m_pcm);
     if (state && state->device) {

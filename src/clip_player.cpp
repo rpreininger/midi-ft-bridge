@@ -91,6 +91,30 @@ void ClipPlayer::stop() {
     m_video.close();
     m_active = false;
     m_hasAudio = false;
+    m_paused = false;
+}
+
+void ClipPlayer::pause() {
+    if (!m_active || m_paused) return;
+    if (m_useWallClock) {
+        m_pauseStart = std::chrono::steady_clock::now();
+    } else if (m_audio) {
+        m_audio->pause();
+    }
+    m_paused = true;
+}
+
+void ClipPlayer::resume() {
+    if (!m_active || !m_paused) return;
+    if (m_useWallClock) {
+        // Shift the virtual start forward by the paused duration so that
+        // getPosition() resumes from the same timestamp.
+        auto pausedFor = std::chrono::steady_clock::now() - m_pauseStart;
+        m_wallClockStart += pausedFor;
+    } else if (m_audio) {
+        m_audio->resume();
+    }
+    m_paused = false;
 }
 
 bool ClipPlayer::isFinished() const {
@@ -108,7 +132,8 @@ double ClipPlayer::getPosition() const {
         return m_audio->getPlaybackPositionSec();
     }
 
-    // Wall-clock fallback
-    auto elapsed = std::chrono::steady_clock::now() - m_wallClockStart;
+    // Wall-clock fallback — if paused, freeze at the pause moment.
+    auto ref = m_paused ? m_pauseStart : std::chrono::steady_clock::now();
+    auto elapsed = ref - m_wallClockStart;
     return std::chrono::duration<double>(elapsed).count();
 }

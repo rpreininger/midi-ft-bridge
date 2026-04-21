@@ -241,8 +241,20 @@ void AudioPlayer::decodeAndBuffer(AVFrame* frame) {
     m_bufCv.notify_one();
 }
 
+void AudioPlayer::pause() {
+    m_paused = true;
+    if (m_pcm) snd_pcm_pause(m_pcm, 1);
+}
+
+void AudioPlayer::resume() {
+    if (m_pcm) snd_pcm_pause(m_pcm, 0);
+    m_paused = false;
+    m_bufCv.notify_one();
+}
+
 void AudioPlayer::stopClip() {
     m_playing = false;
+    m_paused = false;
 
     if (m_pcm) {
         snd_pcm_drop(m_pcm);
@@ -300,11 +312,11 @@ void AudioPlayer::writerThread() {
             std::unique_lock<std::mutex> lock(m_bufMutex);
             // Timed wait: wake on new data or every 5ms to keep ALSA fed
             m_bufCv.wait_for(lock, std::chrono::milliseconds(5), [&] {
-                return !m_running || (m_playing && m_prefilled && m_available > 0);
+                return !m_running || (m_playing && !m_paused && m_prefilled && m_available > 0);
             });
 
             if (!m_running) break;
-            if (!m_playing) continue;
+            if (!m_playing || m_paused) continue;
 
             // Write whatever is available, up to framesPerWrite
             size_t availFrames = m_available / OUT_CHANNELS;

@@ -58,7 +58,8 @@ static void printUsage(const char* prog) {
 }
 
 // Keyboard test mode: read F-keys from terminal in raw mode
-// Returns the mapping index (0-11 for F1-F12), -1 if no key, -2 for ESC (stop)
+// Returns the mapping index (0-11 for F1-F12), -1 if no key, -2 for ESC (stop),
+// -3 for space (pause/resume)
 static int pollKeyboard() {
     fd_set fds;
     FD_ZERO(&fds);
@@ -78,6 +79,7 @@ static int pollKeyboard() {
         if (buf[0] == '-') return 10;
         if (buf[0] == '=') return 11;
         if (buf[0] == '\x1b') return -2;
+        if (buf[0] == ' ') return -3;
         if (buf[0] == 'q' || buf[0] == 'Q') { g_running = false; return -1; }
         return -1;
     }
@@ -217,7 +219,7 @@ int main(int argc, char* argv[]) {
 
         std::cerr << "\n=== KEYBOARD TEST MODE ===" << std::endl;
         std::cerr << "Keys 1-9, 0, -, = trigger clips (or F1-F12)" << std::endl;
-        std::cerr << "Q = quit\n" << std::endl;
+        std::cerr << "SPACE = pause/resume, ESC = stop clip, Q = quit\n" << std::endl;
         for (size_t i = 0; i < config.mappings.size() && i < 12; i++) {
             const char* keys[] = {"1/F1","2/F2","3/F3","4/F4","5/F5","6/F6",
                                   "7/F7","8/F8","9/F9","0/F10","-/F11","=/F12"};
@@ -285,6 +287,9 @@ int main(int argc, char* argv[]) {
                 activeClip.reset();
                 activeClipName.clear();
                 sendBlackToAll();
+            } else if (keyIdx == -3 && activeClip) {
+                activeClip->togglePause();
+                std::cerr << (activeClip->isPaused() ? "SPACE -> pause" : "SPACE -> resume") << std::endl;
             } else if (keyIdx >= 0) {
                 bool alreadyPlaying = activeClip &&
                     keyIdx < (int)config.mappings.size() &&
