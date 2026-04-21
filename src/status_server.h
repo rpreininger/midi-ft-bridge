@@ -55,6 +55,11 @@ public:
     // Set callback for triggering test clips
     void setTestCallback(std::function<void(int note)> cb) { m_testCallback = cb; }
 
+    // Set callback to stop the bridge (invoked by the Shutdown Hub button).
+    // After firing this, the HTTP handler still tries `shutdown now` so the
+    // Pi powers off; on macOS the OS shutdown is a no-op but the app exits.
+    void setStopCallback(std::function<void()> cb) { m_stopCallback = cb; }
+
 private:
     void serverThread();
     void handleClient(int clientSocket);
@@ -72,6 +77,7 @@ private:
     uint64_t m_startTime = 0;
     const Config* m_config = nullptr;
     std::function<void(int note)> m_testCallback;
+    std::function<void()> m_stopCallback;
 
     static constexpr int MAX_MIDI_LOG = 50;
 };

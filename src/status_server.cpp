@@ -4,6 +4,7 @@
 
 #include "status_server.h"
 #include <sys/socket.h>
+#include <sys/select.h>
 #include <netinet/in.h>
 #include <unistd.h>
 #include <cstring>
@@ -80,14 +81,17 @@ void StatusServer::serverThread() {
     std::cerr << "StatusServer: Running on http://0.0.0.0:" << m_port << std::endl;
 
     while (m_running) {
+        // accept() on a listen socket ignores SO_RCVTIMEO on macOS, so poll
+        // with select() and a short timeout to stay responsive to stop().
+        fd_set rfds;
+        FD_ZERO(&rfds);
+        FD_SET(serverSocket, &rfds);
+        struct timeval tv = {1, 0};
+        int ready = select(serverSocket + 1, &rfds, nullptr, nullptr, &tv);
+        if (ready <= 0) continue;
+
         struct sockaddr_in clientAddr;
         socklen_t clientLen = sizeof(clientAddr);
-
-        struct timeval timeout;
-        timeout.tv_sec = 1;
-        timeout.tv_usec = 0;
-        setsockopt(serverSocket, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
-
         int clientSocket = accept(serverSocket, (struct sockaddr*)&clientAddr, &clientLen);
         if (clientSocket >= 0) {
             handleClient(clientSocket);
@@ -129,6 +133,9 @@ void StatusServer::handleClient(int clientSocket) {
         response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nHub shutting down...";
         write(clientSocket, response.c_str(), response.length());
         close(clientSocket);
+        // Ask main to exit cleanly first — on macOS the `shutdown` command
+        // below is a no-op without sudo, so this is what actually stops the app.
+        if (m_stopCallback) m_stopCallback();
         system("sudo shutdown now &");
         return;
     }

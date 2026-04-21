@@ -51,6 +51,10 @@ AudioPlayer::~AudioPlayer() {
 bool AudioPlayer::init(const std::string& device) {
     (void)device;
 
+    // Keep Ctrl+C / SIGTERM ours — SDL will otherwise install handlers that
+    // just set an internal flag we don't poll, and the process stops responding.
+    SDL_SetHint(SDL_HINT_NO_SIGNAL_HANDLERS, "1");
+
     if (SDL_Init(SDL_INIT_AUDIO) < 0) {
         std::cerr << "AudioPlayer: SDL_Init(AUDIO) failed: " << SDL_GetError() << std::endl;
         return false;

@@ -269,6 +269,9 @@ int main(int argc, char* argv[]) {
         triggerMapping(it->second);
     });
 
+    // Shutdown Hub button → exit the app (and on Pi, trigger OS shutdown).
+    statusServer.setStopCallback([]() { g_running = false; });
+
     // Main loop — no longer does decoding, just picks frames and sends
     while (g_running) {
         auto now = std::chrono::steady_clock::now();
