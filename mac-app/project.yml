@@ -1,0 +1,78 @@
+name: MidiFtBridge
+
+options:
+  bundleIdPrefix: de.welt
+  deploymentTarget:
+    macOS: "13.0"
+  developmentLanguage: en
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MACOSX_DEPLOYMENT_TARGET: "13.0"
+    GCC_C_LANGUAGE_STANDARD: c11
+    CLANG_CXX_LANGUAGE_STANDARD: "c++17"
+    CLANG_CXX_LIBRARY: "libc++"
+    PRODUCT_NAME: "MIDI-FT Bridge"
+    PRODUCT_BUNDLE_IDENTIFIER: "de.welt.midiftbridge"
+    SWIFT_OBJC_BRIDGING_HEADER: "MidiFtBridge/MidiFtBridge-Bridging-Header.h"
+    INFOPLIST_FILE: "MidiFtBridge/Info.plist"
+    HEADER_SEARCH_PATHS:
+      - "$(SRCROOT)/../src"
+      - "$(SRCROOT)/MidiFtBridge"
+      - "/opt/homebrew/include"
+      - "/opt/homebrew/include/SDL2"
+    LIBRARY_SEARCH_PATHS:
+      - "/opt/homebrew/lib"
+    OTHER_LDFLAGS:
+      - "-lavformat"
+      - "-lavcodec"
+      - "-lswscale"
+      - "-lswresample"
+      - "-lavutil"
+      - "-lSDL2"
+    # Code signing for development. Switch to a Developer ID for distribution.
+    CODE_SIGN_STYLE: Automatic
+    CODE_SIGN_IDENTITY: "-"
+    ENABLE_HARDENED_RUNTIME: NO
+
+targets:
+  MidiFtBridge:
+    type: application
+    platform: macOS
+    sources:
+      - path: MidiFtBridge
+      # C++ engine sources from the parent repo. Linux-only files (alsa/bluez) excluded.
+      - path: ../src
+        name: Engine
+        type: group
+        includes:
+          - "engine.cpp"
+          - "engine.h"
+          - "video_player.cpp"
+          - "video_player.h"
+          - "clip_player.cpp"
+          - "clip_player.h"
+          - "ft_sender.cpp"
+          - "ft_sender.h"
+          - "lodepng.cpp"
+          - "lodepng.h"
+          - "status_server.cpp"
+          - "status_server.h"
+          - "midi_input.h"
+          - "midi_input_macos.cpp"
+          - "audio_player.h"
+          - "audio_player_macos.cpp"
+          - "ble_sender.h"
+          - "ble_sender_macos.mm"
+          - "config.h"
+    dependencies:
+      - sdk: CoreMIDI.framework
+      - sdk: CoreFoundation.framework
+      - sdk: AppKit.framework
+      - sdk: AudioToolbox.framework
+      - sdk: CoreBluetooth.framework
+    info:
+      path: MidiFtBridge/Info.plist
+      properties:
+        NSBluetoothAlwaysUsageDescription: "Send video frames to iPixel BLE LED panels."

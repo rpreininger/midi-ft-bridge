@@ -182,7 +182,8 @@ BleSender::~BleSender() {
     stop();
 }
 
-bool BleSender::init(const std::string& addr, int brightness, bool debug) {
+bool BleSender::init(const std::string& addr, int brightness, bool debug,
+                     const std::string& /*name*/) {
     m_addr = addr;
     m_brightness = brightness;
     m_debug = debug;

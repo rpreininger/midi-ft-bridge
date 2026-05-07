@@ -1,0 +1,226 @@
+import AppKit
+import Combine
+import SwiftUI
+
+struct PanelInfo: Identifiable {
+    let id = UUID()
+    let name: String
+    let x: Int
+    let y: Int
+    let width: Int
+    let height: Int
+    let type: String
+}
+
+struct MappingInfo: Identifiable {
+    let id = UUID()
+    let index: Int
+    let note: Int
+    let clip: String
+    let panel: String
+}
+
+final class AppModel: NSObject, ObservableObject {
+    private let engine = MFBEngine()
+
+    @Published var running = false
+    @Published var activeClipName = ""
+    @Published var clipPaused = false
+    @Published var midiDeviceName = ""
+    @Published var canvasSize = NSSize(width: 0, height: 0)
+    @Published var panels: [PanelInfo] = []
+    @Published var mappings: [MappingInfo] = []
+    @Published var previewImage: NSImage?
+    @Published var panelImages: [String: NSImage] = [:]
+    @Published var lastError: String?
+
+    private static let configPathKey = "MFBConfigPath"
+
+    @Published var configPath: String = {
+        // Restore previously-used path; otherwise scan likely locations.
+        if let saved = UserDefaults.standard.string(forKey: configPathKey),
+           FileManager.default.fileExists(atPath: saved) {
+            return saved
+        }
+        let cwd = FileManager.default.currentDirectoryPath
+        for c in ["config_local.json", "config.json"] {
+            let p = "\(cwd)/\(c)"
+            if FileManager.default.fileExists(atPath: p) { return p }
+        }
+        return ""
+    }() {
+        didSet { UserDefaults.standard.set(configPath, forKey: Self.configPathKey) }
+    }
+
+    override init() {
+        super.init()
+        engine.delegate = self
+    }
+
+    /// Show an open panel and let the user pick a config JSON file.
+    func chooseConfigFile() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.json]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.message = "Select a config_local.json"
+        if !configPath.isEmpty {
+            panel.directoryURL = URL(fileURLWithPath: configPath).deletingLastPathComponent()
+        }
+        if panel.runModal() == .OK, let url = panel.url {
+            configPath = url.path
+        }
+    }
+
+    func start() {
+        lastError = nil
+
+        // Resolve config path and chdir into its directory so the engine's
+        // relative paths (clips_dir like "./clips") resolve correctly when
+        // launched as a .app (where cwd is "/" by default).
+        let configURL = URL(fileURLWithPath: configPath).standardizedFileURL
+        let dir = configURL.deletingLastPathComponent().path
+        if FileManager.default.fileExists(atPath: dir) {
+            FileManager.default.changeCurrentDirectoryPath(dir)
+        }
+
+        guard engine.start(withConfigPath: configURL.path, statusServer: true) else {
+            lastError = "Failed to load config from \(configURL.path)"
+            return
+        }
+        refreshState()
+
+        let panelDicts = engine.panels()
+        panels = panelDicts.map {
+            PanelInfo(
+                name: ($0["name"] as? String) ?? "",
+                x: ($0["x"] as? Int) ?? 0,
+                y: ($0["y"] as? Int) ?? 0,
+                width: ($0["width"] as? Int) ?? 0,
+                height: ($0["height"] as? Int) ?? 0,
+                type: ($0["type"] as? String) ?? "ft"
+            )
+        }
+        let mapDicts = engine.mappings()
+        mappings = mapDicts.enumerated().map { (idx, d) in
+            MappingInfo(
+                index: idx,
+                note: (d["note"] as? Int) ?? 0,
+                clip: (d["clip"] as? String) ?? "",
+                panel: (d["panel"] as? String) ?? ""
+            )
+        }
+        canvasSize = NSSize(width: engine.canvasWidth, height: engine.canvasHeight)
+    }
+
+    func stop() {
+        engine.stop()
+        previewImage = nil
+        refreshState()
+    }
+
+    func triggerMapping(_ idx: Int) { engine.triggerMapping(at: idx) }
+    func stopClip()                 { engine.stopActiveClip() }
+    func togglePause()              { engine.togglePause() }
+
+    /// Map a single character to a mapping index (matches CLI --test mode).
+    /// Returns true if handled (caller should consume the key event).
+    @discardableResult
+    func handleKey(_ char: String) -> Bool {
+        let idx: Int
+        switch char {
+        case "1": idx = 0
+        case "2": idx = 1
+        case "3": idx = 2
+        case "4": idx = 3
+        case "5": idx = 4
+        case "6": idx = 5
+        case "7": idx = 6
+        case "8": idx = 7
+        case "9": idx = 8
+        case "0": idx = 9
+        case "-": idx = 10
+        case " ":
+            if running, !activeClipName.isEmpty { togglePause(); return true }
+            return false
+        case "\u{1B}": // Escape
+            if running, !activeClipName.isEmpty { stopClip(); return true }
+            return false
+        default: return false
+        }
+        guard running, idx < mappings.count else { return false }
+        triggerMapping(idx)
+        return true
+    }
+
+    /// Returns a short label for the keyboard binding of mapping at `index`.
+    static func keyHint(for index: Int) -> String {
+        switch index {
+        case 0...8:  return "\(index + 1)"
+        case 9:      return "0"
+        case 10:     return "-"
+        default:     return ""
+        }
+    }
+
+    private func refreshState() {
+        running = engine.running
+        activeClipName = engine.activeClipName
+        midiDeviceName = engine.midiDeviceName
+        clipPaused = engine.isClipPaused()
+    }
+}
+
+extension AppModel: MFBEngineDelegate {
+    func engine(_ engine: MFBEngine,
+                didProduceRGBAFrame rgba: Data,
+                width: Int,
+                height: Int) {
+        guard let canvas = AppModel.makeCGImage(rgba: rgba, width: width, height: height) else {
+            return
+        }
+        previewImage = NSImage(cgImage: canvas,
+                               size: NSSize(width: width, height: height))
+
+        // Crop the canvas into per-panel tiles, replacing panel_viewer.
+        var tiles: [String: NSImage] = [:]
+        for panel in panels {
+            let rect = CGRect(x: panel.x, y: panel.y,
+                              width: panel.width, height: panel.height)
+            if let cropped = canvas.cropping(to: rect) {
+                tiles[panel.name] = NSImage(
+                    cgImage: cropped,
+                    size: NSSize(width: panel.width, height: panel.height)
+                )
+            }
+        }
+        panelImages = tiles
+    }
+
+    func engineStateDidChange(_ engine: MFBEngine) {
+        refreshState()
+    }
+
+    /// Build a CGImage from RGBA8 pixel data. The CGImage retains the data via
+    /// CGDataProvider so the caller can drop the reference safely.
+    private static func makeCGImage(rgba: Data, width: Int, height: Int) -> CGImage? {
+        guard width > 0, height > 0 else { return nil }
+        guard let provider = CGDataProvider(data: rgba as CFData) else { return nil }
+
+        let bitmapInfo = CGBitmapInfo(rawValue:
+            CGImageAlphaInfo.noneSkipLast.rawValue
+            | CGBitmapInfo.byteOrder32Big.rawValue
+        )
+        return CGImage(
+            width: width, height: height,
+            bitsPerComponent: 8, bitsPerPixel: 32,
+            bytesPerRow: width * 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: bitmapInfo,
+            provider: provider, decode: nil,
+            shouldInterpolate: false,
+            intent: .defaultIntent
+        )
+    }
+}

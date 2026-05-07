@@ -20,7 +20,8 @@ struct PanelConfig {
     int src_h = 0;   // Source region height (0 = use video_height)
     int max_fps = 0;  // Max send rate for this panel (0 = no limit, use clip FPS)
     std::string type = "ft";  // "ft" = Flaschen-Taschen PPM, "ble" = direct BLE via BlueZ
-    std::string ble_addr;     // BLE MAC address (for type="ble")
+    std::string ble_addr;     // BLE MAC address (Linux/BlueZ for type="ble")
+    std::string ble_name;     // BLE local name match (macOS/CoreBluetooth for type="ble")
     int brightness = 80;      // Panel brightness 0-100 (for type="ble")
 };
 
@@ -82,6 +83,7 @@ struct Config {
                     panel.type = extractString(obj, "type");
                     if (panel.type.empty()) panel.type = "ft";
                     panel.ble_addr = extractString(obj, "ble_addr");
+                    panel.ble_name = extractString(obj, "ble_name");
                     panel.brightness = extractInt(obj, "brightness", 80);
                     panels.push_back(panel);
 

@@ -19,8 +19,10 @@ public:
     BleSender();
     ~BleSender();
 
-    // Initialize with BLE device MAC address and brightness (0-100)
-    bool init(const std::string& addr, int brightness = 80, bool debug = false);
+    // Initialize with BLE device MAC address (Linux/BlueZ), optional local name
+    // (macOS/CoreBluetooth), and brightness (0-100).
+    bool init(const std::string& addr, int brightness = 80, bool debug = false,
+              const std::string& name = "");
 
     // Send a frame (RGB24, width*height*3 bytes). Non-blocking: queues the
     // latest frame and drops older ones if BLE is slower than input.

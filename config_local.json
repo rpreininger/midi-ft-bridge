@@ -8,10 +8,17 @@
   "clips_dir": "./clips",
   "midi_channel": 9,
   "mappings": [
-    { "note": 36, "panel": "all", "clip": "1.mp4" },
-    { "note": 37, "panel": "all", "clip": "2.mp4" },
-    { "note": 38, "panel": "all", "clip": "3.mp4" },
-    { "note": 39, "panel": "all", "clip": "4.mp4" }
+    { "note": 36, "panel": "all", "clip": "dummies/AxelF.mp4" },
+    { "note": 37, "panel": "all", "clip": "dummies/BlackNight.mp4" },
+    { "note": 38, "panel": "all", "clip": "dummies/FlyRobinFly.mp4" },
+    { "note": 39, "panel": "all", "clip": "dummies/Intro.mp4" },
+    { "note": 40, "panel": "all", "clip": "dummies/Magnetosonic.mp4" },
+    { "note": 41, "panel": "all", "clip": "dummies/Neutrino.mp4" },
+    { "note": 42, "panel": "all", "clip": "dummies/PixelPanic.mp4" },
+    { "note": 43, "panel": "all", "clip": "dummies/Shinhatsubai.mp4" },
+    { "note": 44, "panel": "all", "clip": "dummies/ShrinkRayGun.mp4" },
+    { "note": 45, "panel": "all", "clip": "dummies/TurboTennis.mp4" },
+    { "note": 46, "panel": "all", "clip": "dummies/ZX89.mp4" }
   ],
   "default_fps": 25,
   "video_width": 288,
