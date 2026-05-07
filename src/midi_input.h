@@ -43,6 +43,13 @@ public:
     // Get event count for statistics
     uint64_t getEventCount() const { return m_eventCount.load(); }
 
+    // Push an event onto the queue (thread-safe; called from platform listeners)
+    void enqueueEvent(const MidiEvent& ev) {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_eventQueue.push(ev);
+        ++m_eventCount;
+    }
+
 private:
     void listenerThread();
 

@@ -10,6 +10,7 @@ set(CMAKE_CXX_FLAGS_RELEASE "-O3")
 # Common source files (platform-independent)
 set(COMMON_SOURCES
     src/main.cpp
+    src/engine.cpp
     src/video_player.cpp
     src/clip_player.cpp
     src/ft_sender.cpp
@@ -53,10 +54,10 @@ if(CMAKE_CROSSCOMPILING)
 
 elseif(APPLE)
     # ----- macOS native build -----
-    message(STATUS "Building for macOS (stubs for ALSA/BlueZ)")
+    message(STATUS "Building for macOS (CoreMIDI + SDL2 audio, BLE stub)")
 
     set(PLATFORM_SOURCES
-        src/midi_input_stub.cpp
+        src/midi_input_macos.cpp
         src/audio_player_macos.cpp
         src/ble_sender_stub.cpp
     )
@@ -67,7 +68,8 @@ elseif(APPLE)
 
     pkg_check_modules(SDL2 REQUIRED sdl2)
     set(PLATFORM_INCLUDE_DIRS ${SDL2_INCLUDE_DIRS})
-    set(PLATFORM_LIBRARIES ${LIBAV_LIBRARIES} ${SDL2_LIBRARIES} pthread)
+    set(PLATFORM_LIBRARIES ${LIBAV_LIBRARIES} ${SDL2_LIBRARIES} pthread
+        "-framework CoreMIDI" "-framework CoreFoundation")
 
     # SDL2 panel viewer (macOS only)
     pkg_check_modules(SDL2 sdl2)
