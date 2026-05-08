@@ -104,8 +104,8 @@
 
 #pragma mark - Commands
 
-- (void)triggerNote:(NSInteger)note               { if (_engine) _engine->triggerNote((int)note); }
-- (void)triggerMappingAtIndex:(NSInteger)index    { if (_engine) _engine->triggerMapping((int)index); }
+- (void)triggerNote:(NSInteger)note               { if (_engine) _engine->triggerNote((int)note); [self notifyStateChange]; }
+- (void)triggerMappingAtIndex:(NSInteger)index    { if (_engine) _engine->triggerMapping((int)index); [self notifyStateChange]; }
 - (void)stopActiveClip                            { if (_engine) _engine->stopActiveClip(); [self notifyStateChange]; }
 - (void)togglePause                               { if (_engine) _engine->togglePause(); [self notifyStateChange]; }
 - (BOOL)isClipPaused                              { return _engine && _engine->isClipPaused(); }

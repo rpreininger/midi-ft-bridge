@@ -24,6 +24,20 @@ struct ContentView: View {
                resp.isKind(of: NSTextView.self) || resp is NSTextField {
                 return event
             }
+
+            // Arrow / Enter handling — allow auto-repeat for arrows so
+            // holding navigates the list naturally.
+            if let special = event.specialKey {
+                switch special {
+                case .upArrow:    model.selectPrevious(); return nil
+                case .downArrow:  model.selectNext();     return nil
+                case .enter, .carriageReturn:
+                    model.triggerSelected()
+                    return nil
+                default: break
+                }
+            }
+
             if event.isARepeat { return event }
             if let chars = event.charactersIgnoringModifiers,
                model.handleKey(chars) {
@@ -70,6 +84,52 @@ struct ContentView: View {
                 Text(model.running ? "loading config…" : "Engine stopped")
                     .foregroundStyle(.gray)
             }
+        }
+    }
+
+    @ViewBuilder
+    private func mappingRow(_ m: MappingInfo) -> some View {
+        let isSelected = (model.selectedIndex == m.index)
+        HStack {
+            Text(AppModel.keyHint(for: m.index))
+                .font(.system(.body, design: .monospaced).bold())
+                .frame(width: 18, alignment: .center)
+                .foregroundStyle(AppModel.keyHint(for: m.index).isEmpty
+                                 ? .secondary : .primary)
+            Text("Note \(m.note)")
+                .font(.system(.body, design: .monospaced))
+                .frame(width: 76, alignment: .leading)
+            Text(m.clip)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer()
+            Text(m.panel)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Button("Trigger") { model.triggerMapping(m.index) }
+                .buttonStyle(.borderless)
+                .disabled(!model.running)
+        }
+        .padding(.vertical, 3)
+        .padding(.horizontal, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 4)
+                .fill(isSelected
+                      ? Color.accentColor.opacity(0.25)
+                      : Color.clear)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 4)
+                .stroke(isSelected ? Color.accentColor : Color.clear,
+                        lineWidth: 1)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture(count: 2) {
+            model.selectedIndex = m.index
+            if model.running { model.triggerMapping(m.index) }
+        }
+        .onTapGesture(count: 1) {
+            model.selectedIndex = m.index
         }
     }
 
@@ -168,31 +228,20 @@ struct ContentView: View {
                     .font(.caption)
             }
 
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 2) {
-                    ForEach(model.mappings) { m in
-                        HStack {
-                            Text(AppModel.keyHint(for: m.index))
-                                .font(.system(.body, design: .monospaced).bold())
-                                .frame(width: 18, alignment: .center)
-                                .foregroundStyle(AppModel.keyHint(for: m.index).isEmpty
-                                                 ? .secondary : .primary)
-                            Text("Note \(m.note)")
-                                .font(.system(.body, design: .monospaced))
-                                .frame(width: 76, alignment: .leading)
-                            Text(m.clip)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                            Spacer()
-                            Text(m.panel)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Button("Trigger") { model.triggerMapping(m.index) }
-                                .buttonStyle(.borderless)
-                                .disabled(!model.running)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 2) {
+                        ForEach(model.mappings) { m in
+                            mappingRow(m)
+                                .id(m.index)
                         }
-                        .padding(.vertical, 2)
-                        .padding(.horizontal, 4)
+                    }
+                }
+                .onChange(of: model.selectedIndex) { newIdx in
+                    if let i = newIdx {
+                        withAnimation(.easeOut(duration: 0.15)) {
+                            proxy.scrollTo(i, anchor: .center)
+                        }
                     }
                 }
             }

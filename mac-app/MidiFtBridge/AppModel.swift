@@ -30,6 +30,7 @@ final class AppModel: NSObject, ObservableObject {
     @Published var canvasSize = NSSize(width: 0, height: 0)
     @Published var panels: [PanelInfo] = []
     @Published var mappings: [MappingInfo] = []
+    @Published var selectedIndex: Int? = nil
     @Published var previewImage: NSImage?
     @Published var panelImages: [String: NSImage] = [:]
     @Published var lastError: String?
@@ -52,9 +53,20 @@ final class AppModel: NSObject, ObservableObject {
         didSet { UserDefaults.standard.set(configPath, forKey: Self.configPathKey) }
     }
 
+    private var statusTimer: Timer?
+
     override init() {
         super.init()
         engine.delegate = self
+        // Poll engine state so the UI catches transitions the bridge can't
+        // signal directly (e.g. a clip auto-finishing inside the worker).
+        statusTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
+            self?.refreshState()
+        }
+    }
+
+    deinit {
+        statusTimer?.invalidate()
     }
 
     /// Show an open panel and let the user pick a config JSON file.
@@ -124,11 +136,32 @@ final class AppModel: NSObject, ObservableObject {
     func stopClip()                 { engine.stopActiveClip() }
     func togglePause()              { engine.togglePause() }
 
+    /// Move selection one row down (snaps to first row if nothing selected).
+    func selectNext() {
+        guard !mappings.isEmpty else { selectedIndex = nil; return }
+        selectedIndex = min((selectedIndex ?? -1) + 1, mappings.count - 1)
+    }
+
+    /// Move selection one row up (snaps to first row if nothing selected).
+    func selectPrevious() {
+        guard !mappings.isEmpty else { selectedIndex = nil; return }
+        if let cur = selectedIndex { selectedIndex = max(cur - 1, 0) }
+        else { selectedIndex = 0 }
+    }
+
+    /// Trigger the currently-selected mapping (if any and engine running).
+    func triggerSelected() {
+        guard let idx = selectedIndex, idx < mappings.count else { return }
+        if running { triggerMapping(idx) }
+    }
+
     /// Map a single character to a mapping index (matches CLI --test mode).
     /// Returns true if handled (caller should consume the key event).
+    /// Digit/dash keys also update `selectedIndex` so the highlighted row
+    /// follows the trigger source.
     @discardableResult
     func handleKey(_ char: String) -> Bool {
-        let idx: Int
+        let idx: Int?
         switch char {
         case "1": idx = 0
         case "2": idx = 1
@@ -142,15 +175,16 @@ final class AppModel: NSObject, ObservableObject {
         case "0": idx = 9
         case "-": idx = 10
         case " ":
-            if running, !activeClipName.isEmpty { togglePause(); return true }
-            return false
+            if running, !activeClipName.isEmpty { togglePause() }
+            return true   // always consume to avoid system beep
         case "\u{1B}": // Escape
-            if running, !activeClipName.isEmpty { stopClip(); return true }
-            return false
-        default: return false
+            if running, !activeClipName.isEmpty { stopClip() }
+            return true
+        default: idx = nil
         }
-        guard running, idx < mappings.count else { return false }
-        triggerMapping(idx)
+        guard let i = idx, i < mappings.count else { return false }
+        selectedIndex = i
+        if running { triggerMapping(i) }
         return true
     }
 
@@ -165,10 +199,16 @@ final class AppModel: NSObject, ObservableObject {
     }
 
     private func refreshState() {
-        running = engine.running
-        activeClipName = engine.activeClipName
-        midiDeviceName = engine.midiDeviceName
-        clipPaused = engine.isClipPaused()
+        // Idempotent: only assign when changed so the polling timer doesn't
+        // republish unchanged values to dependent SwiftUI views every tick.
+        let r = engine.running
+        if running != r { running = r }
+        let n = engine.activeClipName
+        if activeClipName != n { activeClipName = n }
+        let m = engine.midiDeviceName
+        if midiDeviceName != m { midiDeviceName = m }
+        let p = engine.isClipPaused()
+        if clipPaused != p { clipPaused = p }
     }
 }
 
