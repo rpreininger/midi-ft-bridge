@@ -35,6 +35,10 @@ final class AppModel: NSObject, ObservableObject {
     @Published var panelImages: [String: NSImage] = [:]
     @Published var lastError: String?
 
+    // In-app config editor: a working copy is held here while the sheet is up.
+    @Published var showConfigEditor = false
+    @Published var editingConfig = AppConfig()
+
     private static let configPathKey = "MFBConfigPath"
 
     @Published var configPath: String = {
@@ -83,6 +87,56 @@ final class AppModel: NSObject, ObservableObject {
         if panel.runModal() == .OK, let url = panel.url {
             configPath = url.path
         }
+    }
+
+    // MARK: - In-app config editor
+
+    /// Load the config at `configPath` (or start a fresh template) and open
+    /// the editor sheet on a working copy.
+    func openConfigEditor() {
+        lastError = nil
+        if !configPath.isEmpty, FileManager.default.fileExists(atPath: configPath) {
+            do {
+                editingConfig = try AppConfig.load(from: configPath)
+            } catch {
+                lastError = "Couldn't read config: \(error.localizedDescription)"
+                editingConfig = AppConfig()
+            }
+        } else {
+            editingConfig = AppConfig()   // fresh config; Save will prompt for a path
+        }
+        showConfigEditor = true
+    }
+
+    /// Persist the working copy to `configPath`, prompting for a location if
+    /// none is set yet. Leaves the editor open if the user cancels the prompt.
+    func saveConfigEditor() {
+        if configPath.isEmpty, let chosen = promptSaveLocation() {
+            configPath = chosen
+        }
+        guard !configPath.isEmpty else { return }   // user cancelled the save panel
+        do {
+            try editingConfig.save(to: configPath)
+            showConfigEditor = false
+            // If the engine is live it keeps the previously-loaded config until
+            // restarted; the editor footer already warns about this.
+        } catch {
+            lastError = "Couldn't write config: \(error.localizedDescription)"
+        }
+    }
+
+    func cancelConfigEditor() {
+        showConfigEditor = false
+    }
+
+    /// Ask the user where to save a brand-new config file.
+    private func promptSaveLocation() -> String? {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.json]
+        panel.nameFieldStringValue = "config_local.json"
+        panel.message = "Save configuration as…"
+        panel.directoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        return panel.runModal() == .OK ? panel.url?.path : nil
     }
 
     func start() {

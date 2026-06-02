@@ -14,6 +14,15 @@ struct ContentView: View {
         }
         .onAppear { installKeyMonitor() }
         .onDisappear { removeKeyMonitor() }
+        .sheet(isPresented: $model.showConfigEditor) {
+            ConfigEditorView(
+                config: $model.editingConfig,
+                savePath: model.configPath,
+                isEngineRunning: model.running,
+                onSave: { model.saveConfigEditor() },
+                onCancel: { model.cancelConfigEditor() }
+            )
+        }
     }
 
     private func installKeyMonitor() {
@@ -193,6 +202,8 @@ struct ContentView: View {
 
                 Button("Browse…") { model.chooseConfigFile() }
                     .disabled(model.running)
+
+                Button("Edit Config…") { model.openConfigEditor() }
 
                 if model.running {
                     Button("Stop") { model.stop() }

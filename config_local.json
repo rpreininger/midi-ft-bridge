@@ -1,29 +1,108 @@
 {
-  "panels": [
-    { "name": "A_bigpanel",  "ip": "127.0.0.1", "port": 1337, "src_x": 0,   "src_y": 0,  "src_w": 128, "src_h": 128 },
-    { "name": "B_ericpanel", "ip": "127.0.0.1", "port": 1338, "src_x": 128, "src_y": 0,  "src_w": 128, "src_h": 64 },
-    { "name": "C_ralfpanel", "ip": "127.0.0.1", "port": 1339, "src_x": 128, "src_y": 64, "src_w": 128, "src_h": 64 },
-    { "name": "BT",          "ip": "127.0.0.1", "port": 1340, "src_x": 256, "src_y": 0,  "src_w": 32,  "src_h": 16, "max_fps": 10, "type": "ble_udp" }
+  "audio_device" : "default",
+  "clips_dir" : "./clips",
+  "debug" : 0,
+  "default_fps" : 25,
+  "mappings" : [
+    {
+      "clip" : "mp4/ZX.mp4",
+      "note" : 36,
+      "panel" : "all"
+    },
+    {
+      "clip" : "mp4/Tennis.mp4",
+      "note" : 37,
+      "panel" : "all"
+    },
+    {
+      "clip" : "dummies/FlyRobinFly.mp4",
+      "note" : 38,
+      "panel" : "all"
+    },
+    {
+      "clip" : "dummies/Intro.mp4",
+      "note" : 39,
+      "panel" : "all"
+    },
+    {
+      "clip" : "dummies/Magnetosonic.mp4",
+      "note" : 40,
+      "panel" : "all"
+    },
+    {
+      "clip" : "dummies/Neutrino.mp4",
+      "note" : 41,
+      "panel" : "all"
+    },
+    {
+      "clip" : "dummies/PixelPanic.mp4",
+      "note" : 42,
+      "panel" : "all"
+    },
+    {
+      "clip" : "dummies/Shinhatsubai.mp4",
+      "note" : 43,
+      "panel" : "all"
+    },
+    {
+      "clip" : "dummies/ShrinkRayGun.mp4",
+      "note" : 44,
+      "panel" : "all"
+    },
+    {
+      "clip" : "dummies/TurboTennis.mp4",
+      "note" : 45,
+      "panel" : "all"
+    },
+    {
+      "clip" : "dummies/ZX89.mp4",
+      "note" : 46,
+      "panel" : "all"
+    }
   ],
-  "clips_dir": "./clips",
-  "midi_channel": 9,
-  "mappings": [
-    { "note": 36, "panel": "all", "clip": "dummies/AxelF.mp4" },
-    { "note": 37, "panel": "all", "clip": "dummies/BlackNight.mp4" },
-    { "note": 38, "panel": "all", "clip": "dummies/FlyRobinFly.mp4" },
-    { "note": 39, "panel": "all", "clip": "dummies/Intro.mp4" },
-    { "note": 40, "panel": "all", "clip": "dummies/Magnetosonic.mp4" },
-    { "note": 41, "panel": "all", "clip": "dummies/Neutrino.mp4" },
-    { "note": 42, "panel": "all", "clip": "dummies/PixelPanic.mp4" },
-    { "note": 43, "panel": "all", "clip": "dummies/Shinhatsubai.mp4" },
-    { "note": 44, "panel": "all", "clip": "dummies/ShrinkRayGun.mp4" },
-    { "note": 45, "panel": "all", "clip": "dummies/TurboTennis.mp4" },
-    { "note": 46, "panel": "all", "clip": "dummies/ZX89.mp4" }
+  "midi_channel" : 9,
+  "panels" : [
+    {
+      "ip" : "127.0.0.1",
+      "name" : "A_bigpanel",
+      "port" : 1337,
+      "src_h" : 128,
+      "src_w" : 128,
+      "src_x" : 0,
+      "src_y" : 0
+    },
+    {
+      "ip" : "127.0.0.1",
+      "name" : "B_ericpanel",
+      "port" : 1338,
+      "src_h" : 64,
+      "src_w" : 128,
+      "src_x" : 128,
+      "src_y" : 0
+    },
+    {
+      "ip" : "127.0.0.1",
+      "name" : "C_ralfpanel",
+      "port" : 1339,
+      "src_h" : 64,
+      "src_w" : 128,
+      "src_x" : 128,
+      "src_y" : 64
+    },
+    {
+      "brightness" : 80,
+      "ip" : "127.0.0.1",
+      "max_fps" : 10,
+      "name" : "BT",
+      "port" : 1340,
+      "src_h" : 16,
+      "src_w" : 32,
+      "src_x" : 256,
+      "src_y" : 0,
+      "type" : "ble_udp"
+    }
   ],
-  "default_fps": 25,
-  "video_width": 288,
-  "video_height": 128,
-  "web_port": 8080,
-  "audio_device": "default",
-  "debug": 0
+  "video_height" : 128,
+  "video_width" : 288,
+  "web_port" : 8080
 }
