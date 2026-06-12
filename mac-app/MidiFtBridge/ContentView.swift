@@ -1,8 +1,15 @@
 import SwiftUI
 
+/// What a pending shutdown confirmation targets.
+private enum ShutdownTarget: Equatable {
+    case all
+    case panel(String)
+}
+
 struct ContentView: View {
     @EnvironmentObject var model: AppModel
     @State private var keyMonitor: Any?
+    @State private var shutdownTarget: ShutdownTarget?
 
     var body: some View {
         VSplitView {
@@ -14,6 +21,16 @@ struct ContentView: View {
         }
         .onAppear { installKeyMonitor() }
         .onDisappear { removeKeyMonitor() }
+        .confirmationDialog(
+            shutdownPrompt,
+            isPresented: shutdownDialogBinding,
+            titleVisibility: .visible
+        ) {
+            Button("Shut Down", role: .destructive) { performShutdown() }
+            Button("Cancel", role: .cancel) { shutdownTarget = nil }
+        } message: {
+            Text("This sends `sudo shutdown now` over SSH. Panels must be powered back on manually.")
+        }
         .sheet(isPresented: $model.showConfigEditor) {
             ConfigEditorView(
                 config: $model.editingConfig,
@@ -233,10 +250,20 @@ struct ContentView: View {
                     .disabled(!model.running || model.activeClipName.isEmpty)
                 Button(model.clipPaused ? "Resume" : "Pause") { model.togglePause() }
                     .disabled(!model.running || model.activeClipName.isEmpty)
+                Button(model.autoPlay ? "Stop Test Loop" : "Loop All (Test)") {
+                    model.toggleAutoPlay()
+                }
+                .tint(model.autoPlay ? .orange : nil)
+                .disabled(!model.running || model.mappings.isEmpty)
                 Spacer()
                 Text("\(model.mappings.count) mappings")
                     .foregroundStyle(.secondary)
                     .font(.caption)
+            }
+
+            if model.running && !model.panelStatus.isEmpty {
+                panelStatusSection
+                Divider()
             }
 
             ScrollViewReader { proxy in
@@ -260,6 +287,88 @@ struct ContentView: View {
             .clipShape(RoundedRectangle(cornerRadius: 6))
         }
         .padding()
+    }
+
+    // MARK: - Panel status
+
+    private var canShutdownAny: Bool {
+        model.panelStatus.contains { $0.canShutdown }
+    }
+
+    private var panelStatusSection: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack {
+                Text("Panels")
+                    .font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Button("Shut Down All Panels") { shutdownTarget = .all }
+                    .buttonStyle(.borderless)
+                    .controlSize(.small)
+                    .disabled(!canShutdownAny)
+            }
+            ForEach(model.panelStatus) { panelStatusRow($0) }
+        }
+    }
+
+    @ViewBuilder
+    private func panelStatusRow(_ p: PanelStatusInfo) -> some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(statusColor(p))
+                .frame(width: 9, height: 9)
+            Text(p.name)
+                .font(.system(.body, design: .monospaced))
+                .frame(width: 70, alignment: .leading)
+            Text(p.ip.isEmpty ? "—" : "\(p.ip):\(p.port)")
+                .font(.caption).foregroundStyle(.secondary)
+            Spacer()
+            Text("\(p.framesSent) f · \(formatBytes(p.bytesSent))")
+                .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+            Button("Shut Down") { shutdownTarget = .panel(p.name) }
+                .buttonStyle(.borderless)
+                .controlSize(.small)
+                .disabled(!p.canShutdown)
+        }
+        .padding(.vertical, 2)
+        .padding(.horizontal, 6)
+    }
+
+    /// Red = not connected, green = playing a clip, gray = connected & idle.
+    private func statusColor(_ p: PanelStatusInfo) -> Color {
+        if !p.connected { return .red }
+        return p.isPlaying ? .green : .gray
+    }
+
+    private func formatBytes(_ bytes: UInt64) -> String {
+        let b = Double(bytes)
+        if b >= 1_073_741_824 { return String(format: "%.1f GB", b / 1_073_741_824) }
+        if b >= 1_048_576     { return String(format: "%.1f MB", b / 1_048_576) }
+        if b >= 1_024         { return String(format: "%.1f KB", b / 1_024) }
+        return "\(bytes) B"
+    }
+
+    // MARK: - Shutdown confirmation
+
+    private var shutdownDialogBinding: Binding<Bool> {
+        Binding(get: { shutdownTarget != nil },
+                set: { if !$0 { shutdownTarget = nil } })
+    }
+
+    private var shutdownPrompt: String {
+        switch shutdownTarget {
+        case .panel(let name): return "Shut down panel “\(name)”?"
+        case .all:             return "Shut down all FT panels?"
+        case .none:            return ""
+        }
+    }
+
+    private func performShutdown() {
+        switch shutdownTarget {
+        case .panel(let name): model.shutdownPanel(name)
+        case .all:             model.shutdownAllPanels()
+        case .none:            break
+        }
+        shutdownTarget = nil
     }
 }
 

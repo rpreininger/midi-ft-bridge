@@ -20,15 +20,34 @@ struct MappingInfo: Identifiable {
     let panel: String
 }
 
+/// Live per-panel status mirrored from the engine each tick.
+struct PanelStatusInfo: Identifiable {
+    var id: String { name }
+    let name: String
+    let ip: String
+    let port: Int
+    let framesSent: UInt64
+    let bytesSent: UInt64
+    let connected: Bool
+    let activeClip: String
+    let type: String
+
+    /// Only FT panels with a real IP can be SSH shut down.
+    var canShutdown: Bool { type == "ft" && !ip.isEmpty && ip != "127.0.0.1" }
+    var isPlaying: Bool { !activeClip.isEmpty }
+}
+
 final class AppModel: NSObject, ObservableObject {
     private let engine = MFBEngine()
 
     @Published var running = false
     @Published var activeClipName = ""
     @Published var clipPaused = false
+    @Published var autoPlay = false
     @Published var midiDeviceName = ""
     @Published var canvasSize = NSSize(width: 0, height: 0)
     @Published var panels: [PanelInfo] = []
+    @Published var panelStatus: [PanelStatusInfo] = []
     @Published var mappings: [MappingInfo] = []
     @Published var selectedIndex: Int? = nil
     @Published var previewImage: NSImage?
@@ -183,12 +202,25 @@ final class AppModel: NSObject, ObservableObject {
     func stop() {
         engine.stop()
         previewImage = nil
+        panelStatus = []
         refreshState()
     }
 
     func triggerMapping(_ idx: Int) { engine.triggerMapping(at: idx) }
     func stopClip()                 { engine.stopActiveClip() }
     func togglePause()              { engine.togglePause() }
+
+    /// Toggle test mode: play every mapping in sequence, looping endlessly.
+    func toggleAutoPlay() {
+        engine.setAutoPlay(!autoPlay)
+        autoPlay = engine.isAutoPlay()
+    }
+
+    /// SSH `sudo shutdown now` to all FT panels.
+    func shutdownAllPanels() { engine.shutdownPanels() }
+
+    /// SSH `sudo shutdown now` to a single FT panel by name.
+    func shutdownPanel(_ name: String) { engine.shutdownPanelNamed(name) }
 
     /// Move selection one row down (snaps to first row if nothing selected).
     func selectNext() {
@@ -263,6 +295,25 @@ final class AppModel: NSObject, ObservableObject {
         if midiDeviceName != m { midiDeviceName = m }
         let p = engine.isClipPaused()
         if clipPaused != p { clipPaused = p }
+        let ap = engine.isAutoPlay()
+        if autoPlay != ap { autoPlay = ap }
+
+        // Mirror live panel status while running (frames/bytes change every
+        // tick, so this republishes by design). Cleared on stop().
+        if r {
+            panelStatus = engine.panelStatus().map { d in
+                PanelStatusInfo(
+                    name:       (d["name"] as? String) ?? "",
+                    ip:         (d["ip"] as? String) ?? "",
+                    port:       (d["port"] as? Int) ?? 0,
+                    framesSent: (d["framesSent"] as? NSNumber)?.uint64Value ?? 0,
+                    bytesSent:  (d["bytesSent"] as? NSNumber)?.uint64Value ?? 0,
+                    connected:  (d["connected"] as? Bool) ?? false,
+                    activeClip: (d["activeClip"] as? String) ?? "",
+                    type:       (d["type"] as? String) ?? "ft"
+                )
+            }
+        }
     }
 }
 

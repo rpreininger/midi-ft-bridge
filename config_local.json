@@ -15,32 +15,32 @@
       "panel" : "all"
     },
     {
-      "clip" : "dummies/FlyRobinFly.mp4",
+      "clip" : "mp4/Neu.mp4",
       "note" : 38,
       "panel" : "all"
     },
     {
-      "clip" : "dummies/Intro.mp4",
+      "clip" : "mp4/Moon.mp4",
       "note" : 39,
       "panel" : "all"
     },
     {
-      "clip" : "dummies/Magnetosonic.mp4",
+      "clip" : "mp4/Fly.mp4",
       "note" : 40,
       "panel" : "all"
     },
     {
-      "clip" : "dummies/Neutrino.mp4",
+      "clip" : "mp4/Black.mp4",
       "note" : 41,
       "panel" : "all"
     },
     {
-      "clip" : "dummies/PixelPanic.mp4",
+      "clip" : "mp4/Axel.mp4",
       "note" : 42,
       "panel" : "all"
     },
     {
-      "clip" : "dummies/Shinhatsubai.mp4",
+      "clip" : "mp4/ZX.mp4",
       "note" : 43,
       "panel" : "all"
     },
@@ -91,15 +91,14 @@
     },
     {
       "brightness" : 80,
-      "ip" : "127.0.0.1",
+      "ble_name" : "LED_BLE_25F1E13D",
       "max_fps" : 10,
       "name" : "BT",
-      "port" : 1340,
       "src_h" : 16,
       "src_w" : 32,
       "src_x" : 256,
       "src_y" : 0,
-      "type" : "ble_udp"
+      "type" : "ble"
     }
   ],
   "video_height" : 128,

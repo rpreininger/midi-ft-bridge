@@ -115,9 +115,13 @@ void StatusServer::handleClient(int clientSocket) {
                    "Access-Control-Allow-Origin: *\r\n\r\n" + json;
     }
     else if (request.find("GET /api/shutdown-panels") != std::string::npos) {
-        // Shutdown all FT panels via SSH
+        // Shutdown all FT panels. The engine owns the SSH implementation
+        // (shared with the native macOS UI); fall back to an inline loop only
+        // if no callback was wired.
         std::string result;
-        if (m_config) {
+        if (m_shutdownPanelsCallback) {
+            result = m_shutdownPanelsCallback();
+        } else if (m_config) {
             for (const auto& panel : m_config->panels) {
                 if (panel.type == "ft" && panel.ip != "127.0.0.1") {
                     std::string cmd = "ssh -o ConnectTimeout=3 -o StrictHostKeyChecking=no root@" + panel.ip + " 'sudo shutdown now' 2>&1 &";

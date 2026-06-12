@@ -59,6 +59,13 @@ public:
     void togglePause();
     bool isClipPaused() const;
 
+    // Auto-play / test mode: when enabled, each clip that finishes advances to
+    // the next mapping in order, wrapping around endlessly. Enabling while idle
+    // starts the loop immediately; disabling lets the current clip play out but
+    // stops further advancing.
+    void setAutoPlay(bool on);
+    bool isAutoPlay() const { return m_autoPlay.load(); }
+
     // Active clip name (empty if none playing).
     std::string getActiveClipName() const;
 
@@ -73,6 +80,16 @@ public:
     const Config& getConfig() const { return m_config; }
 
     std::string getMidiDeviceName() const;
+
+    // Latest per-panel live status (frames/bytes sent, connected, active clip).
+    // Refreshed each worker tick; safe to call from any thread.
+    std::vector<PanelStatus> getPanelStatus() const;
+
+    // SSH `sudo shutdown now` to FT panels. Returns a per-panel result summary.
+    // shutdownPanels() targets every shutdownable FT panel; shutdownPanel()
+    // targets one by name. Both no-op for ble/loopback panels.
+    std::string shutdownPanels();
+    std::string shutdownPanel(const std::string& name);
 
 private:
     void workerLoop();
@@ -92,6 +109,10 @@ private:
     std::unique_ptr<StatusServer> m_statusServer;
     std::map<int, int> m_noteMappings;  // MIDI note -> mapping index
 
+    // --- Latest panel status snapshot (written by worker, read by UI) ---
+    mutable std::mutex m_panelStatusMutex;
+    std::vector<PanelStatus> m_lastPanelStatus;
+
     // --- Active clip (touched by both worker and triggerMapping callers) ---
     mutable std::mutex m_clipMutex;
     std::unique_ptr<ClipPlayer> m_activeClip;
@@ -105,6 +126,10 @@ private:
     mutable std::mutex m_callbackMutex;
     FrameCallback m_frameCallback;
     std::function<void()> m_shutdownCallback;
+
+    // --- Auto-play / test mode ---
+    std::atomic<bool> m_autoPlay{false};
+    std::atomic<int>  m_autoPlayIndex{-1};  // last-triggered mapping index
 
     std::thread m_worker;
     std::atomic<bool> m_running{false};

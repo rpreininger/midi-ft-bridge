@@ -44,12 +44,27 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)togglePause;
 - (BOOL)isClipPaused;
 
+/// Auto-play / test mode: cycle through every mapping endlessly.
+- (void)setAutoPlay:(BOOL)on;
+- (BOOL)isAutoPlay;
+
 /// Returns an array of dictionaries: @{ @"note": NSNumber, @"clip": NSString, @"panel": NSString }.
 - (NSArray<NSDictionary<NSString *, id> *> *)mappings;
 
 /// Returns an array of dictionaries describing each panel from the loaded config:
 /// @{ @"name", @"x", @"y", @"width", @"height", @"type" }.
 - (NSArray<NSDictionary<NSString *, id> *> *)panels;
+
+/// Returns live per-panel status (updated each engine tick):
+/// @{ @"name", @"ip", @"port", @"framesSent", @"bytesSent", @"connected", @"activeClip", @"type" }.
+/// Empty when the engine is not running.
+- (NSArray<NSDictionary<NSString *, id> *> *)panelStatus;
+
+/// SSH `sudo shutdown now` to all FT panels. No-op for ble/loopback panels.
+- (void)shutdownPanels;
+
+/// SSH `sudo shutdown now` to the named FT panel.
+- (void)shutdownPanelNamed:(NSString *)name;
 
 @end
 

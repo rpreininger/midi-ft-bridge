@@ -109,6 +109,8 @@
 - (void)stopActiveClip                            { if (_engine) _engine->stopActiveClip(); [self notifyStateChange]; }
 - (void)togglePause                               { if (_engine) _engine->togglePause(); [self notifyStateChange]; }
 - (BOOL)isClipPaused                              { return _engine && _engine->isClipPaused(); }
+- (void)setAutoPlay:(BOOL)on                      { if (_engine) _engine->setAutoPlay(on); [self notifyStateChange]; }
+- (BOOL)isAutoPlay                                { return _engine && _engine->isAutoPlay(); }
 
 #pragma mark - Config snapshots
 
@@ -141,6 +143,32 @@
         }];
     }
     return out;
+}
+
+- (NSArray<NSDictionary<NSString *, id> *> *)panelStatus {
+    NSMutableArray *out = [NSMutableArray new];
+    if (!_engine) return out;
+    for (const auto &p : _engine->getPanelStatus()) {
+        [out addObject:@{
+            @"name":       [NSString stringWithUTF8String:p.name.c_str()],
+            @"ip":         [NSString stringWithUTF8String:p.ip.c_str()],
+            @"port":       @(p.port),
+            @"framesSent": @(p.framesSent),
+            @"bytesSent":  @(p.bytesSent),
+            @"connected":  @(p.enabled),
+            @"activeClip": [NSString stringWithUTF8String:p.activeClip.c_str()],
+            @"type":       [NSString stringWithUTF8String:p.type.c_str()],
+        }];
+    }
+    return out;
+}
+
+- (void)shutdownPanels {
+    if (_engine) _engine->shutdownPanels();
+}
+
+- (void)shutdownPanelNamed:(NSString *)name {
+    if (_engine) _engine->shutdownPanel(std::string([name UTF8String]));
 }
 
 @end

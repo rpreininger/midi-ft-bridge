@@ -4,9 +4,27 @@
 #include "engine.h"
 
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <iostream>
 #include <unistd.h>
+
+namespace {
+// True for panels we can SSH a shutdown to (FT Pi panels with a real IP).
+bool isShutdownable(const PanelConfig& p) {
+    return p.type == "ft" && !p.ip.empty() && p.ip != "127.0.0.1";
+}
+
+// Fire-and-forget SSH shutdown; returns a one-line "name (ip): sent|failed".
+std::string sshShutdown(const PanelConfig& p) {
+    std::string cmd = "ssh -o ConnectTimeout=3 -o StrictHostKeyChecking=no root@" +
+                      p.ip + " 'sudo shutdown now' 2>&1 &";
+    int ret = system(cmd.c_str());
+    std::string line = p.name + " (" + p.ip + "): " + (ret == 0 ? "sent" : "failed");
+    std::cerr << "Shutdown " << line << std::endl;
+    return line + "\n";
+}
+}  // namespace
 
 Engine::Engine() = default;
 
@@ -104,6 +122,7 @@ bool Engine::start(const std::string& configPath, bool statusServerEnabled) {
             }
             if (cb) cb();
         });
+        m_statusServer->setShutdownPanelsCallback([this]() { return shutdownPanels(); });
         m_statusServer->start();
     }
 
@@ -115,6 +134,8 @@ bool Engine::start(const std::string& configPath, bool statusServerEnabled) {
 
 void Engine::stop() {
     if (!m_started) return;
+    m_autoPlay.store(false);
+    m_autoPlayIndex.store(-1);
     m_running = false;
     if (m_worker.joinable()) m_worker.join();
     shutdownInternals();
@@ -169,6 +190,9 @@ void Engine::sendBlackToAll() {
 
 void Engine::triggerMapping(int mappingIdx) {
     if (mappingIdx < 0 || mappingIdx >= static_cast<int>(m_config.mappings.size())) return;
+    // Remember where we are so auto-play continues from the last clip played,
+    // whether it was triggered manually, by MIDI, or by the auto-advance.
+    m_autoPlayIndex.store(mappingIdx);
     const auto& mapping = m_config.mappings[mappingIdx];
     std::string clipPath = m_config.clips_dir + "/" + mapping.clip;
 
@@ -220,6 +244,24 @@ bool Engine::isClipPaused() const {
     return m_activeClip && m_activeClip->isPaused();
 }
 
+void Engine::setAutoPlay(bool on) {
+    m_autoPlay.store(on);
+    if (!on || m_config.mappings.empty()) return;
+
+    // Kick the loop off now if nothing is playing; otherwise let the current
+    // clip finish and the worker's auto-advance takes over from there.
+    bool idle;
+    {
+        std::lock_guard<std::mutex> lock(m_clipMutex);
+        idle = !m_activeClip;
+    }
+    if (idle) {
+        int start = m_autoPlayIndex.load();
+        start = (start < 0) ? 0 : (start % static_cast<int>(m_config.mappings.size()));
+        triggerMapping(start);
+    }
+}
+
 std::string Engine::getActiveClipName() const {
     std::lock_guard<std::mutex> lock(m_clipMutex);
     return m_activeClipName;
@@ -237,6 +279,29 @@ void Engine::setShutdownCallback(std::function<void()> cb) {
 
 std::string Engine::getMidiDeviceName() const {
     return m_midiInput.getDeviceName();
+}
+
+std::vector<PanelStatus> Engine::getPanelStatus() const {
+    std::lock_guard<std::mutex> lock(m_panelStatusMutex);
+    return m_lastPanelStatus;
+}
+
+std::string Engine::shutdownPanels() {
+    std::string result;
+    for (const auto& panel : m_config.panels) {
+        if (isShutdownable(panel)) result += sshShutdown(panel);
+    }
+    return result;
+}
+
+std::string Engine::shutdownPanel(const std::string& name) {
+    for (const auto& panel : m_config.panels) {
+        if (panel.name == name) {
+            if (isShutdownable(panel)) return sshShutdown(panel);
+            return name + ": not shutdownable (not an FT panel)\n";
+        }
+    }
+    return name + ": panel not found\n";
 }
 
 void Engine::workerLoop() {
@@ -319,11 +384,20 @@ void Engine::workerLoop() {
                 m_activeClipName.clear();
             }
             std::cerr << "Engine: clip finished: " << finishedName << std::endl;
-            sendBlackToAll();
+
+            // Test/auto-play mode: advance to the next mapping and loop forever.
+            if (m_autoPlay.load() && !m_config.mappings.empty()) {
+                int next = (m_autoPlayIndex.load() + 1) %
+                           static_cast<int>(m_config.mappings.size());
+                triggerMapping(next);
+            } else {
+                sendBlackToAll();
+            }
         }
 
-        // Update status server (panels + MIDI device hot-plug)
-        if (m_statusServer) {
+        // Build the per-panel status snapshot (consumed by both the native UI
+        // via getPanelStatus() and the optional HTTP status server).
+        {
             std::vector<PanelStatus> panelStatus;
             std::string clipName;
             {
@@ -335,6 +409,7 @@ void Engine::workerLoop() {
                 ps.name = m_config.panels[i].name;
                 ps.ip   = m_config.panels[i].ip;
                 ps.port = m_config.panels[i].port;
+                ps.type = m_config.panels[i].type;
                 if (m_config.panels[i].type == "ble" && m_bleSenders[i]) {
                     ps.framesSent = m_bleSenders[i]->getFramesSent();
                     ps.bytesSent  = 0;
@@ -351,9 +426,15 @@ void Engine::workerLoop() {
                 ps.activeClip = clipName;
                 panelStatus.push_back(ps);
             }
-            m_statusServer->updatePanelStatus(panelStatus);
-            if (m_midiInput.isRunning()) {
-                m_statusServer->setMidiDevice(m_midiInput.getDeviceName());
+            {
+                std::lock_guard<std::mutex> lock(m_panelStatusMutex);
+                m_lastPanelStatus = panelStatus;
+            }
+            if (m_statusServer) {
+                m_statusServer->updatePanelStatus(panelStatus);
+                if (m_midiInput.isRunning()) {
+                    m_statusServer->setMidiDevice(m_midiInput.getDeviceName());
+                }
             }
         }
 

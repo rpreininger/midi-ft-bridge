@@ -19,6 +19,7 @@ struct PanelStatus {
     uint64_t bytesSent;
     bool enabled;
     std::string activeClip;  // Currently playing clip name, empty if idle
+    std::string type;        // "ft" / "ble" — only "ft" panels can be SSH shut down
 };
 
 struct MidiEventLog {
@@ -60,6 +61,11 @@ public:
     // Pi powers off; on macOS the OS shutdown is a no-op but the app exits.
     void setStopCallback(std::function<void()> cb) { m_stopCallback = cb; }
 
+    // Set callback for the "Shutdown All Panels" button. Returns a per-panel
+    // result summary used as the HTTP response body. Lets the engine own the
+    // single SSH-shutdown implementation shared with the native UI.
+    void setShutdownPanelsCallback(std::function<std::string()> cb) { m_shutdownPanelsCallback = cb; }
+
 private:
     void serverThread();
     void handleClient(int clientSocket);
@@ -78,6 +84,7 @@ private:
     const Config* m_config = nullptr;
     std::function<void(int note)> m_testCallback;
     std::function<void()> m_stopCallback;
+    std::function<std::string()> m_shutdownPanelsCallback;
 
     static constexpr int MAX_MIDI_LOG = 50;
 };
