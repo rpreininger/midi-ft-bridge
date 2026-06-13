@@ -20,10 +20,22 @@ cmake --build "$PROJECT_DIR/build"
 rm -rf "$DEPLOY_DIR"
 mkdir -p "$DEPLOY_DIR/lib" "$DEPLOY_DIR/clips"
 
-# Copy binaries and config
+# Copy binaries and configs
 cp "$PROJECT_DIR/build/midi_ft_bridge" "$DEPLOY_DIR/"
 cp "$PROJECT_DIR/build/panel_viewer" "$DEPLOY_DIR/"
+cp "$PROJECT_DIR/config.json" "$DEPLOY_DIR/" 2>/dev/null || true
 cp "$PROJECT_DIR/config_local.json" "$DEPLOY_DIR/"
+
+# Copy runtime clips (the .mp4 playback files; ProRes masters are not needed
+# at runtime and are skipped to keep the package small).
+echo "Copying clips..."
+for sub in mp4 Dummies; do
+    if [ -d "$PROJECT_DIR/clips/$sub" ]; then
+        mkdir -p "$DEPLOY_DIR/clips/$sub"
+        cp "$PROJECT_DIR/clips/$sub"/*.mp4 "$DEPLOY_DIR/clips/$sub/" 2>/dev/null || true
+    fi
+done
+cp "$PROJECT_DIR/clips/README.txt" "$DEPLOY_DIR/clips/" 2>/dev/null || true
 
 # Copy README
 cp "$SCRIPT_DIR/README-macos.txt" "$DEPLOY_DIR/README.txt" 2>/dev/null || true
