@@ -10,6 +10,7 @@ struct ContentView: View {
     @EnvironmentObject var model: AppModel
     @State private var keyMonitor: Any?
     @State private var shutdownTarget: ShutdownTarget?
+    @State private var scrubValue = 0.0
 
     var body: some View {
         VSplitView {
@@ -261,6 +262,10 @@ struct ContentView: View {
                     .font(.caption)
             }
 
+            if model.running && !model.activeClipName.isEmpty {
+                transportSection
+            }
+
             if model.running && !model.panelStatus.isEmpty {
                 panelStatusSection
                 Divider()
@@ -287,6 +292,52 @@ struct ContentView: View {
             .clipShape(RoundedRectangle(cornerRadius: 6))
         }
         .padding()
+    }
+
+    // MARK: - Transport
+
+    private var transportSection: some View {
+        VStack(spacing: 6) {
+            HStack(spacing: 18) {
+                Button { model.previousClip() } label: { Image(systemName: "backward.end.fill") }
+                Button { model.seekBy(-10) }    label: { Image(systemName: "gobackward.10") }
+                Button { model.togglePause() }  label: {
+                    Image(systemName: model.clipPaused ? "play.fill" : "pause.fill")
+                }
+                Button { model.seekBy(10) }     label: { Image(systemName: "goforward.10") }
+                Button { model.nextClip() }     label: { Image(systemName: "forward.end.fill") }
+            }
+            .buttonStyle(.borderless)
+            .font(.title3)
+
+            HStack(spacing: 8) {
+                Text(timeString(model.position))
+                    .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                Slider(value: scrubBinding, in: 0...max(model.duration, 0.1)) { editing in
+                    if editing {
+                        scrubValue = model.position
+                        model.isScrubbing = true
+                    } else {
+                        model.seek(to: scrubValue)
+                        model.isScrubbing = false
+                    }
+                }
+                .disabled(model.duration <= 0)
+                Text(timeString(model.duration))
+                    .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var scrubBinding: Binding<Double> {
+        Binding(get: { model.isScrubbing ? scrubValue : model.position },
+                set: { scrubValue = $0 })
+    }
+
+    private func timeString(_ s: Double) -> String {
+        guard s.isFinite, s > 0 else { return "0:00" }
+        let t = Int(s.rounded())
+        return String(format: "%d:%02d", t / 60, t % 60)
     }
 
     // MARK: - Panel status

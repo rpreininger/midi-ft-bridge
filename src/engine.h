@@ -66,6 +66,18 @@ public:
     void setAutoPlay(bool on);
     bool isAutoPlay() const { return m_autoPlay.load(); }
 
+    // Transport: current clip position / duration in seconds (0 if idle).
+    double getPosition() const;
+    double getDuration() const;
+
+    // Seek the active clip to an absolute position, or by a relative delta.
+    void seekTo(double seconds);
+    void seekBy(double deltaSeconds);
+
+    // Jump to the next / previous mapping (clip) in the playlist, wrapping.
+    void skipToNext();
+    void skipToPrevious();
+
     // Active clip name (empty if none playing).
     std::string getActiveClipName() const;
 

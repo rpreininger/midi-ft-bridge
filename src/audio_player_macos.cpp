@@ -73,8 +73,8 @@ bool AudioPlayer::init(const std::string& device) {
 }
 
 bool AudioPlayer::openStream(AVCodecParameters* codecpar, int timeBaseNum, int timeBaseDen) {
-    (void)timeBaseNum;
-    (void)timeBaseDen;
+    m_audioTbNum = timeBaseNum;
+    m_audioTbDen = (timeBaseDen > 0) ? timeBaseDen : 1;
 
     closeStream();
 
@@ -150,6 +150,8 @@ bool AudioPlayer::openStream(AVCodecParameters* codecpar, int timeBaseNum, int t
     m_streamStart = std::chrono::steady_clock::now();
     m_totalWritten = 0;
     state->totalBytesQueued = 0;
+    m_clockBaseSec = 0.0;       // fresh clip starts at content time 0
+    m_haveClockBase = true;     // don't re-anchor during normal playback
 
     // Unpause SDL audio
     SDL_PauseAudioDevice(state->device, 0);
@@ -164,6 +166,12 @@ bool AudioPlayer::openStream(AVCodecParameters* codecpar, int timeBaseNum, int t
 
 void AudioPlayer::feedPacket(AVPacket* packet) {
     if (!m_codecCtx || !m_playing) return;
+
+    // After a seek, anchor the clock to the first packet's real timestamp.
+    if (!m_haveClockBase.load() && packet && packet->pts != AV_NOPTS_VALUE) {
+        m_clockBaseSec = (double)packet->pts * m_audioTbNum / m_audioTbDen;
+        m_haveClockBase = true;
+    }
 
     int ret = avcodec_send_packet(m_codecCtx, packet);
     if (ret < 0) return;
@@ -186,6 +194,21 @@ void AudioPlayer::flush() {
         if (ret < 0) break;
         decodeAndBuffer(m_decFrame);
     }
+}
+
+void AudioPlayer::resetForSeek(double baseHintSec) {
+    if (!m_playing) return;
+
+    auto* state = reinterpret_cast<SDLAudioState*>(m_pcm);
+    if (state && state->device) {
+        SDL_ClearQueuedAudio(state->device);
+        state->totalBytesQueued = 0;
+    }
+    if (m_codecCtx) avcodec_flush_buffers(m_codecCtx);
+
+    m_totalWritten = 0;
+    m_clockBaseSec = baseHintSec;   // report ~target until the first packet lands
+    m_haveClockBase = false;        // next packet re-anchors to its exact PTS
 }
 
 void AudioPlayer::decodeAndBuffer(AVFrame* frame) {

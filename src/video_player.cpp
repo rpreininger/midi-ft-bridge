@@ -158,6 +158,42 @@ void VideoPlayer::start() {
     m_demuxThread = std::thread(&VideoPlayer::demuxThread, this);
 }
 
+void VideoPlayer::seek(double targetSec) {
+    if (!m_formatCtx || !m_codecCtx || m_videoStreamIdx < 0) return;
+    if (targetSec < 0) targetSec = 0;
+
+    // 1. Stop the worker threads (race-free) without freeing ffmpeg state.
+    stopThreads();
+
+    // 2. Drop any packets left queued from before the seek.
+    for (AVPacket* p : m_pktQueue) av_packet_free(&p);
+    m_pktQueue.clear();
+
+    // 3. Seek the container to the keyframe at/just before the target, then
+    //    flush the decoder so it doesn't emit stale frames.
+    int64_t ts = (int64_t)(targetSec * AV_TIME_BASE);
+    av_seek_frame(m_formatCtx, -1, ts, AVSEEK_FLAG_BACKWARD);
+    avcodec_flush_buffers(m_codecCtx);
+
+    // 4. Reset the frame ring and end-of-stream flags.
+    {
+        std::lock_guard<std::mutex> lock(m_bufMutex);
+        m_writeIdx = 0;
+        m_readIdx = 0;
+        m_writeCount = 0;
+        m_readCount = 0;
+        m_lastPTS = -1.0;
+        for (int i = 0; i < FRAME_BUF_SIZE; i++) m_frameBuf[i].pts = -1.0;
+    }
+    m_finished = false;
+    m_demuxDone = false;
+
+    // 5. Restart the workers; they resume demuxing from the seek point.
+    m_running = true;
+    m_decodeThread = std::thread(&VideoPlayer::decodeThread, this);
+    m_demuxThread = std::thread(&VideoPlayer::demuxThread, this);
+}
+
 void VideoPlayer::demuxThread() {
     // Reads packets from the container as fast as the packet queue allows.
     // Audio packets are handed to the audio callback immediately — this is
@@ -353,15 +389,28 @@ AVRational VideoPlayer::getAudioTimeBase() const {
     return {0, 1};
 }
 
-void VideoPlayer::close() {
-    m_running = false;
-    m_bufNotFull.notify_all();
-    m_bufNotEmpty.notify_all();
+void VideoPlayer::stopThreads() {
+    // Flip m_running while holding both queue mutexes. A waiter evaluates its
+    // predicate under one of these mutexes, so this guarantees it either sees
+    // m_running == false (and never waits) or is already suspended (and the
+    // notify below reaches it). Setting the flag lock-free, as before, allowed
+    // a lost wakeup that hung join() during clip transitions.
+    {
+        std::lock_guard<std::mutex> lockPkt(m_pktMutex);
+        std::lock_guard<std::mutex> lockBuf(m_bufMutex);
+        m_running = false;
+    }
     m_pktNotFull.notify_all();
     m_pktNotEmpty.notify_all();
+    m_bufNotFull.notify_all();
+    m_bufNotEmpty.notify_all();
 
     if (m_demuxThread.joinable()) m_demuxThread.join();
     if (m_decodeThread.joinable()) m_decodeThread.join();
+}
+
+void VideoPlayer::close() {
+    stopThreads();
 
     // Drain any packets left in the queue.
     for (AVPacket* p : m_pktQueue) {

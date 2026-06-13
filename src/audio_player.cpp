@@ -70,8 +70,8 @@ bool AudioPlayer::init(const std::string& alsaDevice) {
 }
 
 bool AudioPlayer::openStream(AVCodecParameters* codecpar, int timeBaseNum, int timeBaseDen) {
-    (void)timeBaseNum;
-    (void)timeBaseDen;
+    m_audioTbNum = timeBaseNum;
+    m_audioTbDen = (timeBaseDen > 0) ? timeBaseDen : 1;
 
     closeStream();
 
@@ -163,6 +163,8 @@ bool AudioPlayer::openStream(AVCodecParameters* codecpar, int timeBaseNum, int t
     m_playing = true;
     m_streamStart = std::chrono::steady_clock::now();
     m_totalWritten = 0;
+    m_clockBaseSec = 0.0;
+    m_haveClockBase = true;
 
     std::cerr << "AudioPlayer: Stream opened ("
               << m_codecCtx->sample_rate << "Hz "
@@ -174,6 +176,12 @@ bool AudioPlayer::openStream(AVCodecParameters* codecpar, int timeBaseNum, int t
 
 void AudioPlayer::feedPacket(AVPacket* packet) {
     if (!m_codecCtx || !m_playing) return;
+
+    // After a seek, anchor the clock to the first packet's real timestamp.
+    if (!m_haveClockBase.load() && packet && packet->pts != AV_NOPTS_VALUE) {
+        m_clockBaseSec = (double)packet->pts * m_audioTbNum / m_audioTbDen;
+        m_haveClockBase = true;
+    }
 
     int ret = avcodec_send_packet(m_codecCtx, packet);
     if (ret < 0) return;
@@ -239,6 +247,28 @@ void AudioPlayer::decodeAndBuffer(AVFrame* frame) {
         m_prefilled = true;
     }
     m_bufCv.notify_one();
+}
+
+void AudioPlayer::resetForSeek(double baseHintSec) {
+    if (!m_playing) return;
+
+    // Drop everything ALSA has buffered and re-prepare for a clean restart.
+    if (m_pcm) {
+        snd_pcm_drop(m_pcm);
+        snd_pcm_prepare(m_pcm);
+    }
+    if (m_codecCtx) avcodec_flush_buffers(m_codecCtx);
+
+    {
+        std::lock_guard<std::mutex> lock(m_bufMutex);
+        m_readPos = 0;
+        m_writePos = 0;
+        m_available = 0;
+    }
+
+    m_totalWritten = 0;
+    m_clockBaseSec = baseHintSec;
+    m_haveClockBase = false;
 }
 
 void AudioPlayer::pause() {

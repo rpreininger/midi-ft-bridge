@@ -41,6 +41,11 @@ public:
     // Flush the decoder (call at end of stream).
     void flush();
 
+    // Reset audio for a seek: drop queued/buffered PCM, flush the decoder, and
+    // re-anchor the playback clock. baseHintSec seeds the reported position
+    // until the first post-seek packet supplies the exact timestamp.
+    void resetForSeek(double baseHintSec);
+
     // Stop current clip playback immediately.
     void stopClip();
 
@@ -56,9 +61,12 @@ public:
     bool isInitialized() const { return m_pcm != nullptr; }
     bool isPlaying() const { return m_playing; }
 
-    // Master clock: returns playback position in seconds based on samples written to ALSA.
+    // Master clock: playback position in seconds. m_clockBaseSec is the content
+    // timestamp the current stream segment started at (0 for a fresh clip, the
+    // seek target after a seek); samples written advance it from there.
     double getPlaybackPositionSec() const {
-        return (m_sampleRate > 0) ? (double)m_totalWritten / m_sampleRate : 0.0;
+        double played = (m_sampleRate > 0) ? (double)m_totalWritten / m_sampleRate : 0.0;
+        return m_clockBaseSec.load() + played;
     }
 
     int getSampleRate() const { return m_sampleRate; }
@@ -101,6 +109,14 @@ private:
     std::atomic<bool> m_prefilled;  // true once ring buffer has enough data to start
     std::chrono::steady_clock::time_point m_streamStart;
     std::atomic<size_t> m_totalWritten{0};  // total frames written to ALSA (read cross-thread)
+
+    // Absolute-clock anchoring. m_clockBaseSec is the content time the current
+    // segment begins at; m_haveClockBase gates capturing it from the first
+    // packet after a seek (normal playback keeps base 0, unchanged behavior).
+    std::atomic<double> m_clockBaseSec{0.0};
+    std::atomic<bool>   m_haveClockBase{true};
+    int m_audioTbNum = 0;   // audio stream time base, for packet PTS -> seconds
+    int m_audioTbDen = 1;
 
     // Pre-allocated resample buffer (avoids per-call heap alloc)
     std::vector<float> m_resampleBuf;

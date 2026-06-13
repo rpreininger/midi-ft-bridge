@@ -111,6 +111,12 @@
 - (BOOL)isClipPaused                              { return _engine && _engine->isClipPaused(); }
 - (void)setAutoPlay:(BOOL)on                      { if (_engine) _engine->setAutoPlay(on); [self notifyStateChange]; }
 - (BOOL)isAutoPlay                                { return _engine && _engine->isAutoPlay(); }
+- (double)playbackPosition                        { return _engine ? _engine->getPosition() : 0.0; }
+- (double)playbackDuration                        { return _engine ? _engine->getDuration() : 0.0; }
+- (void)seekTo:(double)seconds                    { if (_engine) _engine->seekTo(seconds); }
+- (void)seekBy:(double)seconds                    { if (_engine) _engine->seekBy(seconds); }
+- (void)skipToNextClip                            { if (_engine) _engine->skipToNext(); [self notifyStateChange]; }
+- (void)skipToPreviousClip                        { if (_engine) _engine->skipToPrevious(); [self notifyStateChange]; }
 
 #pragma mark - Config snapshots
 

@@ -48,6 +48,18 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)setAutoPlay:(BOOL)on;
 - (BOOL)isAutoPlay;
 
+/// Transport: active clip position / duration in seconds (0 if idle).
+- (double)playbackPosition;
+- (double)playbackDuration;
+
+/// Seek the active clip to an absolute position, or by a relative delta.
+- (void)seekTo:(double)seconds;
+- (void)seekBy:(double)seconds;
+
+/// Jump to the next / previous clip in the playlist.
+- (void)skipToNextClip;
+- (void)skipToPreviousClip;
+
 /// Returns an array of dictionaries: @{ @"note": NSNumber, @"clip": NSString, @"panel": NSString }.
 - (NSArray<NSDictionary<NSString *, id> *> *)mappings;
 

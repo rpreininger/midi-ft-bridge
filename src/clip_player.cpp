@@ -125,6 +125,28 @@ double ClipPlayer::getFPS() const {
     return m_video.getFPS();
 }
 
+void ClipPlayer::seek(double targetSec) {
+    if (!m_active) return;
+
+    double dur = m_video.getDuration();
+    if (targetSec < 0) targetSec = 0;
+    if (dur > 0.0 && targetSec > dur - 0.1) targetSec = dur - 0.1;
+
+    // Reset audio first so the first audio packet decoded after the demuxer
+    // seek re-anchors the master clock to the new position.
+    if (m_hasAudio && m_audio) m_audio->resetForSeek(targetSec);
+
+    m_video.seek(targetSec);
+
+    // Silent clips run off the wall clock — shift its origin to the target.
+    if (m_useWallClock) {
+        auto now = std::chrono::steady_clock::now();
+        m_wallClockStart = now - std::chrono::duration_cast<
+            std::chrono::steady_clock::duration>(std::chrono::duration<double>(targetSec));
+        if (m_paused) m_pauseStart = now;
+    }
+}
+
 double ClipPlayer::getPosition() const {
     if (!m_active) return 0.0;
 

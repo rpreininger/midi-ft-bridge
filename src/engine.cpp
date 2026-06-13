@@ -244,6 +244,40 @@ bool Engine::isClipPaused() const {
     return m_activeClip && m_activeClip->isPaused();
 }
 
+double Engine::getPosition() const {
+    std::lock_guard<std::mutex> lock(m_clipMutex);
+    return m_activeClip ? m_activeClip->getPosition() : 0.0;
+}
+
+double Engine::getDuration() const {
+    std::lock_guard<std::mutex> lock(m_clipMutex);
+    return m_activeClip ? m_activeClip->getDuration() : 0.0;
+}
+
+void Engine::seekTo(double seconds) {
+    std::lock_guard<std::mutex> lock(m_clipMutex);
+    if (m_activeClip) m_activeClip->seek(seconds);
+}
+
+void Engine::seekBy(double deltaSeconds) {
+    std::lock_guard<std::mutex> lock(m_clipMutex);
+    if (m_activeClip) m_activeClip->seek(m_activeClip->getPosition() + deltaSeconds);
+}
+
+void Engine::skipToNext() {
+    int n = static_cast<int>(m_config.mappings.size());
+    if (n == 0) return;
+    int cur = m_autoPlayIndex.load();
+    triggerMapping((cur < 0) ? 0 : (cur + 1) % n);
+}
+
+void Engine::skipToPrevious() {
+    int n = static_cast<int>(m_config.mappings.size());
+    if (n == 0) return;
+    int cur = m_autoPlayIndex.load();
+    triggerMapping((cur < 0) ? (n - 1) : (cur - 1 + n) % n);
+}
+
 void Engine::setAutoPlay(bool on) {
     m_autoPlay.store(on);
     if (!on || m_config.mappings.empty()) return;

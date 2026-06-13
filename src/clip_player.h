@@ -51,6 +51,13 @@ public:
     // Get current playback position in seconds
     double getPosition() const;
 
+    // Get total clip duration in seconds (0 if unknown).
+    double getDuration() const { return m_video.getDuration(); }
+
+    // Seek to targetSec (clamped to the clip). Re-anchors the audio-master
+    // clock (or the wall clock for silent clips) so position tracks the target.
+    void seek(double targetSec);
+
 private:
     VideoPlayer m_video;
     AudioPlayer* m_audio;  // not owned, shared across clips

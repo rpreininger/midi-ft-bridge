@@ -46,6 +46,12 @@ public:
     // after setAudioCallback() (if the clip has audio).
     void start();
 
+    // Seek to targetSec (clamped to [0, duration)). Stops the worker threads,
+    // seeks the demuxer to the keyframe at/just before the target, flushes the
+    // decoder and frame ring, then restarts the threads. Audio packets resume
+    // from the seek point via the audio callback.
+    void seek(double targetSec);
+
     // Get the decoded frame closest to the given time (in seconds).
     // Returns pointer to RGB24 data, or nullptr if no frames available.
     // The pointer is valid until the next call to getFrameAtTime() or close().
@@ -79,6 +85,10 @@ private:
     void demuxThread();
     void decodeThread();
     bool storeFrame(double pts);
+
+    // Stop the demux/decode threads race-free: clear m_running under both
+    // queue mutexes (so no waiter can miss the wakeup) then notify and join.
+    void stopThreads();
 
     // Video packet queue (demux -> decode). Bounded so demux can't
     // run arbitrarily far ahead, but large enough that the audio queue

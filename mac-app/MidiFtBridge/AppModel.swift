@@ -44,6 +44,12 @@ final class AppModel: NSObject, ObservableObject {
     @Published var activeClipName = ""
     @Published var clipPaused = false
     @Published var autoPlay = false
+    @Published var position = 0.0     // current clip position, seconds
+    @Published var duration = 0.0     // current clip duration, seconds
+
+    /// Set by the transport scrubber while the user drags, so the status poll
+    /// doesn't fight the thumb position.
+    var isScrubbing = false
     @Published var midiDeviceName = ""
     @Published var canvasSize = NSSize(width: 0, height: 0)
     @Published var panels: [PanelInfo] = []
@@ -216,6 +222,16 @@ final class AppModel: NSObject, ObservableObject {
         autoPlay = engine.isAutoPlay()
     }
 
+    // MARK: - Transport
+
+    func seek(to seconds: Double) {
+        engine.seek(to: seconds)
+        position = seconds
+    }
+    func seekBy(_ delta: Double) { engine.seek(by: delta) }
+    func nextClip()             { engine.skipToNextClip() }
+    func previousClip()         { engine.skipToPreviousClip() }
+
     /// SSH `sudo shutdown now` to all FT panels.
     func shutdownAllPanels() { engine.shutdownPanels() }
 
@@ -297,6 +313,14 @@ final class AppModel: NSObject, ObservableObject {
         if clipPaused != p { clipPaused = p }
         let ap = engine.isAutoPlay()
         if autoPlay != ap { autoPlay = ap }
+
+        // Transport position/duration. Don't clobber the scrubber mid-drag.
+        let dur = r ? engine.playbackDuration() : 0.0
+        if duration != dur { duration = dur }
+        if !isScrubbing {
+            let pos = r ? engine.playbackPosition() : 0.0
+            if position != pos { position = pos }
+        }
 
         // Mirror live panel status while running (frames/bytes change every
         // tick, so this republishes by design). Cleared on stop().
