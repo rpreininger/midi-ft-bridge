@@ -2,7 +2,10 @@
 # Build a self-contained macOS deployment package
 # Usage: ./deploy/build-macos.sh
 #
-# Prerequisites: brew install ffmpeg sdl2 cmake pkg-config
+# Prerequisites: cmake (+ optional: brew install sdl2 pkg-config — only for
+# the panel_viewer dev tool). The bridge itself is now fully native
+# (AVFoundation + AudioToolbox + CoreMIDI), so FFmpeg/SDL2 are NOT required
+# and no third-party dylibs are bundled for it.
 
 set -e
 

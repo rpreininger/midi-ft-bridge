@@ -7,11 +7,16 @@
 // ====================================================================
 #pragma once
 
-#include "video_player.h"
 #include "audio_player.h"
+#ifndef MFB_NATIVE_MACOS
+#include "video_player.h"
+#endif
 #include <string>
 #include <chrono>
 #include <atomic>
+#ifdef MFB_NATIVE_MACOS
+#include <memory>
+#endif
 
 struct Config;
 
@@ -43,7 +48,11 @@ public:
     bool isFinished() const;
 
     // Does this clip have audio?
+#ifdef MFB_NATIVE_MACOS
+    bool hasAudio() const;
+#else
     bool hasAudio() const { return m_hasAudio; }
+#endif
 
     // Get the video FPS (for panel send rate hints)
     double getFPS() const;
@@ -52,13 +61,24 @@ public:
     double getPosition() const;
 
     // Get total clip duration in seconds (0 if unknown).
+#ifdef MFB_NATIVE_MACOS
+    double getDuration() const;
+#else
     double getDuration() const { return m_video.getDuration(); }
+#endif
 
     // Seek to targetSec (clamped to the clip). Re-anchors the audio-master
     // clock (or the wall clock for silent clips) so position tracks the target.
     void seek(double targetSec);
 
 private:
+#ifdef MFB_NATIVE_MACOS
+    // Native macOS build: all A/V handled by AVFoundation behind a pimpl.
+    // AVPlayer owns audio output + A/V sync; the shared AudioPlayer is unused.
+    struct Impl;
+    std::unique_ptr<Impl> m_impl;
+    std::atomic<bool> m_paused{false};
+#else
     VideoPlayer m_video;
     AudioPlayer* m_audio;  // not owned, shared across clips
 
@@ -72,4 +92,5 @@ private:
     // Pause state (for wall-clock mode; audio mode also routes through AudioPlayer)
     std::atomic<bool> m_paused{false};
     std::chrono::steady_clock::time_point m_pauseStart;
+#endif
 };

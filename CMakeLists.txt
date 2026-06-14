@@ -7,12 +7,13 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Optimization flags
 set(CMAKE_CXX_FLAGS_RELEASE "-O3")
 
-# Common source files (platform-independent)
+# Common source files (platform-independent).
+# NOTE: the FFmpeg video/clip players are NOT common — the native macOS build
+# replaces them with AVFoundation (clip_player_macos.mm), so they are added
+# per-platform below.
 set(COMMON_SOURCES
     src/main.cpp
     src/engine.cpp
-    src/video_player.cpp
-    src/clip_player.cpp
     src/ft_sender.cpp
     src/lodepng.cpp
     src/status_server.cpp
@@ -25,6 +26,8 @@ if(CMAKE_CROSSCOMPILING)
     message(STATUS "Cross-compiling for ${CMAKE_SYSTEM_PROCESSOR}")
 
     set(PLATFORM_SOURCES
+        src/video_player.cpp
+        src/clip_player.cpp
         src/midi_input.cpp
         src/audio_player.cpp
         src/ble_sender.cpp
@@ -53,26 +56,42 @@ if(CMAKE_CROSSCOMPILING)
         avformat avcodec swscale swresample avutil pthread m)
 
 elseif(APPLE)
-    # ----- macOS native build -----
-    message(STATUS "Building for macOS (CoreMIDI + SDL2 audio, BLE stub)")
+    # ----- macOS native build (AVFoundation, no FFmpeg / no SDL2) -----
+    message(STATUS "Building for macOS (native: AVFoundation decode + audio, CoreMIDI)")
+
+    # Tell the shared headers (clip_player.h) to use the AVFoundation pimpl
+    # variant instead of the FFmpeg VideoPlayer/AudioPlayer members.
+    add_compile_definitions(MFB_NATIVE_MACOS)
 
     set(PLATFORM_SOURCES
+        src/clip_player_macos.mm
         src/midi_input_macos.cpp
-        src/audio_player_macos.cpp
+        src/audio_player_macos_native.cpp
         src/ble_sender_stub.cpp
     )
 
-    find_package(PkgConfig REQUIRED)
-    pkg_check_modules(LIBAV REQUIRED libavformat libavcodec libswscale libswresample libavutil)
-    set(FFMPEG_INCLUDE_DIRS ${LIBAV_INCLUDE_DIRS})
+    # AVFoundation .mm files use ARC (manages the ObjC members inside the
+    # C++ pimpl struct automatically).
+    set_source_files_properties(src/clip_player_macos.mm PROPERTIES
+        COMPILE_FLAGS "-fobjc-arc")
 
-    pkg_check_modules(SDL2 REQUIRED sdl2)
-    set(PLATFORM_INCLUDE_DIRS ${SDL2_INCLUDE_DIRS})
-    set(PLATFORM_LIBRARIES ${LIBAV_LIBRARIES} ${SDL2_LIBRARIES} pthread
-        "-framework CoreMIDI" "-framework CoreFoundation")
+    set(PLATFORM_INCLUDE_DIRS "")
+    set(PLATFORM_LIBRARIES pthread
+        "-framework AVFoundation"
+        "-framework CoreMedia"
+        "-framework CoreVideo"
+        "-framework QuartzCore"
+        "-framework AudioToolbox"
+        "-framework CoreMIDI"
+        "-framework CoreFoundation"
+        "-framework Foundation")
 
-    # SDL2 panel viewer (macOS only)
-    pkg_check_modules(SDL2 sdl2)
+    # Optional SDL2 panel viewer dev tool (not part of the bridge; uses no
+    # FFmpeg). Built only if SDL2 happens to be installed.
+    find_package(PkgConfig)
+    if(PkgConfig_FOUND)
+        pkg_check_modules(SDL2 sdl2)
+    endif()
     if(SDL2_FOUND)
         add_executable(panel_viewer tools/panel_viewer.cpp)
         target_include_directories(panel_viewer PRIVATE
@@ -83,7 +102,7 @@ elseif(APPLE)
         target_link_libraries(panel_viewer ${SDL2_LIBRARIES})
         message(STATUS "Panel viewer: enabled (SDL2 found)")
     else()
-        message(STATUS "Panel viewer: disabled (install SDL2: brew install sdl2)")
+        message(STATUS "Panel viewer: disabled (optional dev tool; brew install sdl2)")
     endif()
 
 else()
@@ -91,6 +110,8 @@ else()
     message(STATUS "Building for Linux (native)")
 
     set(PLATFORM_SOURCES
+        src/video_player.cpp
+        src/clip_player.cpp
         src/midi_input.cpp
         src/audio_player.cpp
         src/ble_sender.cpp
@@ -118,10 +139,6 @@ include_directories(
 )
 
 add_executable(midi_ft_bridge ${SOURCES})
-
-if(APPLE)
-    target_link_directories(midi_ft_bridge PRIVATE ${LIBAV_LIBRARY_DIRS} ${SDL2_LIBRARY_DIRS})
-endif()
 
 target_link_libraries(midi_ft_bridge ${PLATFORM_LIBRARIES})
 
