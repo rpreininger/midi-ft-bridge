@@ -74,3 +74,24 @@ targets:
       path: MidiFtBridge/Info.plist
       properties:
         NSBluetoothAlwaysUsageDescription: "Send video frames to iPixel BLE LED panels."
+        # xcodegen regenerates Info.plist from this block, so the version must
+        # live here (editing Info.plist directly gets overwritten on generate).
+        CFBundleShortVersionString: "1.0.1"
+        CFBundleVersion: "2"
+
+schemes:
+  MidiFtBridge:
+    build:
+      targets:
+        MidiFtBridge: all
+    # Run/Profile/Archive use Release by default; tests/analyze stay Debug.
+    run:
+      config: Release
+    test:
+      config: Debug
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release

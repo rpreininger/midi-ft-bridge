@@ -11,6 +11,7 @@ struct ContentView: View {
     @State private var keyMonitor: Any?
     @State private var shutdownTarget: ShutdownTarget?
     @State private var scrubValue = 0.0
+    @State private var showHelp = false
 
     var body: some View {
         VSplitView {
@@ -40,6 +41,9 @@ struct ContentView: View {
                 onSave: { model.saveConfigEditor() },
                 onCancel: { model.cancelConfigEditor() }
             )
+        }
+        .sheet(isPresented: $showHelp) {
+            HelpView(onClose: { showHelp = false })
         }
     }
 
@@ -229,6 +233,12 @@ struct ContentView: View {
                     Button("Start") { model.start() }
                         .keyboardShortcut(.return)
                 }
+
+                Button { showHelp = true } label: {
+                    Image(systemName: "questionmark.circle")
+                }
+                .help("Info & keyboard shortcuts")
+                .keyboardShortcut("?", modifiers: .command)
             }
 
             HStack(spacing: 16) {

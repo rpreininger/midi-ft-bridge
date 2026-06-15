@@ -1,5 +1,6 @@
 # Build directories
 build-native/
+build-native-sequoia/
 build-arm/
 
 # Video clips (large binary files)
@@ -32,4 +33,5 @@ build/
 
 # Deploy output (binaries + bundled libs)
 deploy-macos/
+deploy-macos-native/
 deploy-macos.zip
