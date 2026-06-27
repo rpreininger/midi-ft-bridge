@@ -31,3 +31,6 @@ deploy-macos.zip
 
 # Generated AppleScript droplet (source is the .applescript)
 clips/*.app/
+
+# Versioned app deploy packages
+MIDI-FT-Bridge-*-macos.zip
