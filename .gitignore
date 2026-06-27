@@ -28,3 +28,6 @@ mac-app/build/
 # Deploy output
 deploy-macos/
 deploy-macos.zip
+
+# Generated AppleScript droplet (source is the .applescript)
+clips/*.app/
