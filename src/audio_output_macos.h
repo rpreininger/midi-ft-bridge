@@ -21,8 +21,13 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 namespace macaudio {
+
+// Names of the currently-available CoreAudio output devices, for populating
+// the app's audio-output picker.
+std::vector<std::string> outputDeviceNames();
 
 // JSON snapshot of the current output devices, e.g.
 //   {"selected":"<uid>","selectedName":"Roland FANTOM",

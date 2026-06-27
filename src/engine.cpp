@@ -114,9 +114,9 @@ bool Engine::start(const std::string& configPath, bool statusServerEnabled) {
     }
 
 #ifdef MFB_NATIVE_MACOS
-    // Route clip audio to the configured CoreAudio output device (if any).
-    // The user can also switch this live from the web UI; this just sets the
-    // startup default. Empty audio_output keeps the system default device.
+    // Route clip audio to the configured CoreAudio output device (if any),
+    // chosen in the app's config editor. Empty audio_output keeps the system
+    // default device.
     if (!m_config.audio_output.empty()) {
         std::string sel = macaudio::selectByNameSubstring(m_config.audio_output);
         if (sel.empty()) {
@@ -158,15 +158,10 @@ bool Engine::start(const std::string& configPath, bool statusServerEnabled) {
         if (m_midiInput.isRunning()) {
             m_statusServer->setMidiDevice(m_midiInput.getDeviceName());
         }
+        // Web interface is read-only monitoring plus two actions kept on
+        // purpose: clip Test triggers (a backup if MIDI fails) and panel
+        // shutdown. All config lives in the macOS app.
         m_statusServer->setTestCallback([this](int note) { triggerNote(note); });
-        m_statusServer->setStopCallback([this]() {
-            std::function<void()> cb;
-            {
-                std::lock_guard<std::mutex> lock(m_callbackMutex);
-                cb = m_shutdownCallback;
-            }
-            if (cb) cb();
-        });
         m_statusServer->setShutdownPanelsCallback([this]() { return shutdownPanels(); });
         m_statusServer->start();
     }

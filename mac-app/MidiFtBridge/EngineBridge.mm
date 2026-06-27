@@ -7,6 +7,7 @@
 #include "engine.h"
 #include "config.h"
 #include "midi_input.h"
+#include "audio_output_macos.h"
 
 #include <memory>
 #include <string>
@@ -31,6 +32,14 @@
 + (NSArray<NSString *> *)availableMIDIDevices {
     NSMutableArray<NSString *> *result = [NSMutableArray array];
     for (const std::string& name : MidiInput::availableDevices()) {
+        [result addObject:[NSString stringWithUTF8String:name.c_str()]];
+    }
+    return result;
+}
+
++ (NSArray<NSString *> *)availableAudioOutputs {
+    NSMutableArray<NSString *> *result = [NSMutableArray array];
+    for (const std::string& name : macaudio::outputDeviceNames()) {
         [result addObject:[NSString stringWithUTF8String:name.c_str()]];
     }
     return result;

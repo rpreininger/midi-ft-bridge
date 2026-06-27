@@ -53,13 +53,8 @@ public:
     // Set config reference for display
     void setConfig(const Config* config) { m_config = config; }
 
-    // Set callback for triggering test clips
+    // Set callback for triggering test clips (web clip-trigger backup for MIDI)
     void setTestCallback(std::function<void(int note)> cb) { m_testCallback = cb; }
-
-    // Set callback to stop the bridge (invoked by the Shutdown Hub button).
-    // After firing this, the HTTP handler still tries `shutdown now` so the
-    // Pi powers off; on macOS the OS shutdown is a no-op but the app exits.
-    void setStopCallback(std::function<void()> cb) { m_stopCallback = cb; }
 
     // Set callback for the "Shutdown All Panels" button. Returns a per-panel
     // result summary used as the HTTP response body. Lets the engine own the
@@ -83,7 +78,6 @@ private:
     uint64_t m_startTime = 0;
     const Config* m_config = nullptr;
     std::function<void(int note)> m_testCallback;
-    std::function<void()> m_stopCallback;
     std::function<std::string()> m_shutdownPanelsCallback;
 
     static constexpr int MAX_MIDI_LOG = 50;

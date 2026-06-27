@@ -12,33 +12,6 @@
 #include <iostream>
 #include <chrono>
 
-#ifdef MFB_NATIVE_MACOS
-#include "audio_output_macos.h"
-#endif
-
-namespace {
-// Minimal percent-decoder for query-string values (CoreAudio device UIDs
-// contain ':' and may contain spaces, so the browser sends them encoded).
-std::string urlDecode(const std::string& s) {
-    auto hexVal = [](char c) -> int {
-        if (c >= '0' && c <= '9') return c - '0';
-        if (c >= 'a' && c <= 'f') return c - 'a' + 10;
-        if (c >= 'A' && c <= 'F') return c - 'A' + 10;
-        return -1;
-    };
-    std::string out;
-    out.reserve(s.size());
-    for (size_t i = 0; i < s.size(); ++i) {
-        if (s[i] == '%' && i + 2 < s.size()) {
-            int hi = hexVal(s[i + 1]), lo = hexVal(s[i + 2]);
-            if (hi >= 0 && lo >= 0) { out += static_cast<char>(hi * 16 + lo); i += 2; continue; }
-        }
-        out += (s[i] == '+') ? ' ' : s[i];
-    }
-    return out;
-}
-}  // namespace
-
 StatusServer::StatusServer(int port) : m_port(port) {}
 
 StatusServer::~StatusServer() {
@@ -164,47 +137,6 @@ void StatusServer::handleClient(int clientSocket) {
             }
         }
         response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nShutdown result:\n" + result;
-    }
-    else if (request.find("GET /api/shutdown-hub") != std::string::npos) {
-        response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nHub shutting down...";
-        write(clientSocket, response.c_str(), response.length());
-        close(clientSocket);
-        // Ask main to exit cleanly first — on macOS the `shutdown` command
-        // below is a no-op without sudo, so this is what actually stops the app.
-        if (m_stopCallback) m_stopCallback();
-        system("sudo shutdown now &");
-        return;
-    }
-    else if (request.find("GET /api/audio-devices") != std::string::npos) {
-        // List CoreAudio output devices and the currently selected one.
-        std::string json =
-#ifdef MFB_NATIVE_MACOS
-            macaudio::devicesJSON();
-#else
-            "{\"selected\":\"\",\"selectedName\":\"(audio routing is macOS-only)\",\"devices\":[]}";
-#endif
-        response = "HTTP/1.1 200 OK\r\n"
-                   "Content-Type: application/json\r\n"
-                   "Access-Control-Allow-Origin: *\r\n\r\n" + json;
-    }
-    else if (request.find("GET /api/audio-device?") != std::string::npos) {
-        // Select the output device by UID (empty = system default). Takes effect
-        // on the next clip (the clip player reads the selection per AudioQueue).
-        std::string uid;
-        size_t pos = request.find("uid=");
-        if (pos != std::string::npos) {
-            pos += 4;
-            size_t end = request.find_first_of(" &\r\n", pos);
-            uid = urlDecode(request.substr(pos, end == std::string::npos
-                                                    ? std::string::npos : end - pos));
-        }
-        std::string name =
-#ifdef MFB_NATIVE_MACOS
-            macaudio::selectByUID(uid);
-#else
-            std::string("(macOS only)");
-#endif
-        response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nAudio output: " + name;
     }
     else if (request.find("GET /api/test?note=") != std::string::npos) {
         size_t pos = request.find("note=");
@@ -355,12 +287,6 @@ std::string StatusServer::generateHTML() {
                 <span class="stat-label">MIDI Events</span>
                 <span class="stat-value" id="midiCount">0</span>
             </div>
-            <div class="stat">
-                <span class="stat-label">Audio Output</span>
-                <span class="stat-value">
-                    <select id="audioDevice" onchange="setAudioDevice()"></select>
-                </span>
-            </div>
         </div>
 
         <div class="card">
@@ -387,17 +313,12 @@ std::string StatusServer::generateHTML() {
 
     <div class="shutdown-section">
         <button class="shutdown-btn" onclick="shutdownPanels()">Shutdown All Panels</button>
-        <button class="shutdown-btn hub" onclick="shutdownHub()">Shutdown Hub</button>
     </div>
 
     <script>
         function shutdownPanels() {
             if (!confirm('Shutdown all FT panels?')) return;
             fetch('/api/shutdown-panels').then(function(r) { return r.text(); }).then(function(t) { alert(t); });
-        }
-        function shutdownHub() {
-            if (!confirm('Shutdown the hub (Pi)? This will stop all services!')) return;
-            fetch('/api/shutdown-hub').then(function(r) { return r.text(); }).then(function(t) { alert(t); });
         }
 
         function formatUptime(seconds) {
@@ -423,33 +344,6 @@ std::string StatusServer::generateHTML() {
 
         function triggerTest(note) {
             fetch('/api/test?note=' + note).then(function(r) { return r.text(); });
-        }
-
-        function loadAudioDevices() {
-            fetch('/api/audio-devices')
-                .then(function(r) { return r.json(); })
-                .then(function(d) {
-                    var sel = document.getElementById('audioDevice');
-                    if (!sel) return;
-                    var html = '';
-                    var devs = d.devices || [];
-                    for (var i = 0; i < devs.length; i++) {
-                        var dev = devs[i];
-                        var label = dev.name + (dev['default'] ? ' (default)' : '');
-                        var isSel = (dev.uid === d.selected) ? ' selected' : '';
-                        html += '<option value="' + encodeURIComponent(dev.uid) + '"' + isSel + '>' + label + '</option>';
-                    }
-                    if (!devs.length) html = '<option value="">' + (d.selectedName || '(none)') + '</option>';
-                    sel.innerHTML = html;
-                })
-                .catch(function() {});
-        }
-
-        function setAudioDevice() {
-            var sel = document.getElementById('audioDevice');
-            if (!sel) return;
-            // option value is already encodeURIComponent'd; server percent-decodes it.
-            fetch('/api/audio-device?uid=' + sel.value).then(function(r) { return r.text(); });
         }
 
         function refresh() {
@@ -514,10 +408,6 @@ std::string StatusServer::generateHTML() {
         }
 
         refresh();
-        loadAudioDevices();
-        // Re-scan device list periodically so newly connected interfaces appear
-        // (the dropdown is only repopulated, preserving the active selection).
-        setInterval(loadAudioDevices, 5000);
         setInterval(refresh, 1000);
     </script>
 </body>

@@ -37,6 +37,10 @@ NS_ASSUME_NONNULL_BEGIN
 /// running engine.
 + (NSArray<NSString *> *)availableMIDIDevices;
 
+/// Names of all CoreAudio output devices, for the config editor's audio-output
+/// picker. Does not require a running engine.
++ (NSArray<NSString *> *)availableAudioOutputs;
+
 /// Returns YES on success. statusServer enables the legacy HTTP status page on config.web_port.
 - (BOOL)startWithConfigPath:(NSString *)configPath
                 statusServer:(BOOL)statusServer;

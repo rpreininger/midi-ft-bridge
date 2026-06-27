@@ -141,6 +141,12 @@ std::string toLower(std::string s) {
 
 namespace macaudio {
 
+std::vector<std::string> outputDeviceNames() {
+    std::vector<std::string> names;
+    for (const auto& d : enumerateOutputs()) names.push_back(d.name);
+    return names;
+}
+
 std::string devicesJSON() {
     std::vector<DevInfo> devs = enumerateOutputs();
 

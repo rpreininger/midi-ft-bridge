@@ -102,7 +102,8 @@ struct AppConfig: Codable, Equatable {
     var videoWidth = 256
     var videoHeight = 128
     var webPort = 8080
-    var audioDevice = ""
+    var audioDevice = ""     // ALSA PCM (Linux/frozen); unused on macOS, kept for round-trip
+    var audioOutput = ""     // macOS CoreAudio output device (name substring); "" = system default
     var debug = 0            // 0/1 (kept as Int to match the C++ parser)
 
     // Order chosen so the written file reads like the original config.json.
@@ -117,6 +118,7 @@ struct AppConfig: Codable, Equatable {
         case videoHeight = "video_height"
         case webPort = "web_port"
         case audioDevice = "audio_device"
+        case audioOutput = "audio_output"
         case debug
     }
 
@@ -134,6 +136,7 @@ struct AppConfig: Codable, Equatable {
         videoHeight = try c.decodeIfPresent(Int.self, forKey: .videoHeight) ?? 128
         webPort = try c.decodeIfPresent(Int.self, forKey: .webPort) ?? 8080
         audioDevice = try c.decodeIfPresent(String.self, forKey: .audioDevice) ?? ""
+        audioOutput = try c.decodeIfPresent(String.self, forKey: .audioOutput) ?? ""
         debug = try c.decodeIfPresent(Int.self, forKey: .debug) ?? 0
     }
 

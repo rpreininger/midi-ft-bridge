@@ -16,6 +16,7 @@ struct ConfigEditorView: View {
     @State private var tab: Tab = .general
     @State private var mappingsDropTargeted = false
     @State private var midiDevices: [String] = []
+    @State private var audioOutputs: [String] = []
 
     var body: some View {
         VStack(spacing: 0) {
@@ -40,7 +41,10 @@ struct ConfigEditorView: View {
             footer
         }
         .frame(width: 660, height: 560)
-        .onAppear { midiDevices = MFBEngine.availableMIDIDevices() }
+        .onAppear {
+            midiDevices = MFBEngine.availableMIDIDevices()
+            audioOutputs = MFBEngine.availableAudioOutputs()
+        }
     }
 
     // MARK: - Footer
@@ -82,11 +86,25 @@ struct ConfigEditorView: View {
                 LabeledContent("Clips directory") {
                     TextField("", text: $config.clipsDir).multilineTextAlignment(.trailing)
                 }
-                LabeledContent("Audio device") {
-                    TextField("empty = disabled", text: $config.audioDevice)
-                        .multilineTextAlignment(.trailing)
+                LabeledContent("Audio output") {
+                    HStack(spacing: 6) {
+                        Picker("", selection: $config.audioOutput) {
+                            Text("System Default").tag("")
+                            ForEach(audioOutputs, id: \.self) { Text($0).tag($0) }
+                            // Preserve a configured device that isn't currently connected.
+                            if !config.audioOutput.isEmpty, !audioOutputs.contains(config.audioOutput) {
+                                Text("\(config.audioOutput) (not connected)").tag(config.audioOutput)
+                            }
+                        }
+                        .labelsHidden()
+                        Button {
+                            audioOutputs = MFBEngine.availableAudioOutputs()
+                        } label: { Image(systemName: "arrow.clockwise") }
+                            .buttonStyle(.borderless)
+                            .help("Rescan audio devices")
+                    }
                 }
-                .help("CoreAudio output device name, or empty to disable")
+                .help("CoreAudio output device clip audio plays through. “System Default” follows the Mac's current output.")
             }
             Section("MIDI & Network") {
                 LabeledContent("MIDI input device") {
