@@ -90,13 +90,8 @@ Main thread:    query audio clock → pick matching video frame → send to pane
 
 The Swift app in `mac-app/` wraps the C++ engine through `EngineBridge.mm`
 (Obj-C++ facade) and adds the GUI: preview, transport, config editor, panel
-status, and the MIDI device picker.
-
-### Panel viewer (dev tool)
-
-`tools/panel_viewer.cpp` — optional SDL2 app that listens on UDP and renders
-all panels in one window. Point its config at localhost panels to preview
-without hardware. Built by CMake only if SDL2 is installed.
+status, and the MIDI device picker. The preview pane renders every panel live
+in the window, so no separate panel simulator is needed.
 
 ## Bluetooth Pixel Panel (iPixel Color)
 

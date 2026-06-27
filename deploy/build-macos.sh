@@ -1,6 +1,5 @@
 #!/bin/bash
-# Build a self-contained macOS CLI package (headless midi_ft_bridge + the
-# optional SDL2 panel_viewer dev tool).
+# Build a self-contained macOS CLI package (headless midi_ft_bridge).
 # Usage: ./deploy/build-macos.sh
 #
 # The shipping GUI app is built from the Xcode project in mac-app/ — this
@@ -8,8 +7,7 @@
 # (AVFoundation + AudioToolbox + CoreMIDI), so there are NO third-party
 # dylibs to bundle; it runs on any Mac at the deployment target as-is.
 #
-# Prerequisites: cmake (+ optional: brew install sdl2 pkg-config — only for
-# the panel_viewer dev tool).
+# Prerequisites: cmake.
 
 set -e
 
@@ -27,9 +25,8 @@ cmake --build "$PROJECT_DIR/build"
 rm -rf "$DEPLOY_DIR"
 mkdir -p "$DEPLOY_DIR/clips"
 
-# Binaries (panel_viewer only exists if SDL2 was available at configure time)
+# Binary
 cp "$PROJECT_DIR/build/midi_ft_bridge" "$DEPLOY_DIR/"
-[ -f "$PROJECT_DIR/build/panel_viewer" ] && cp "$PROJECT_DIR/build/panel_viewer" "$DEPLOY_DIR/"
 
 # Config
 cp "$PROJECT_DIR/config.json" "$DEPLOY_DIR/" 2>/dev/null || true
@@ -48,7 +45,6 @@ cp "$PROJECT_DIR/clips/README.txt" "$DEPLOY_DIR/clips/" 2>/dev/null || true
 # Ad-hoc sign (no Developer ID needed to run locally)
 echo "Signing..."
 codesign --force --sign - "$DEPLOY_DIR/midi_ft_bridge"
-[ -f "$DEPLOY_DIR/panel_viewer" ] && codesign --force --sign - "$DEPLOY_DIR/panel_viewer"
 
 # Smoke test
 "$DEPLOY_DIR/midi_ft_bridge" --help >/dev/null 2>&1 || true

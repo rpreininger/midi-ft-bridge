@@ -61,25 +61,6 @@ set(PLATFORM_LIBRARIES pthread
     "-framework CoreFoundation"
     "-framework Foundation")
 
-# Optional SDL2 panel viewer dev tool (not part of the bridge).
-# Built only if SDL2 happens to be installed.
-find_package(PkgConfig)
-if(PkgConfig_FOUND)
-    pkg_check_modules(SDL2 sdl2)
-endif()
-if(SDL2_FOUND)
-    add_executable(panel_viewer tools/panel_viewer.cpp)
-    target_include_directories(panel_viewer PRIVATE
-        ${CMAKE_SOURCE_DIR}/src
-        ${SDL2_INCLUDE_DIRS}
-    )
-    target_link_directories(panel_viewer PRIVATE ${SDL2_LIBRARY_DIRS})
-    target_link_libraries(panel_viewer ${SDL2_LIBRARIES})
-    message(STATUS "Panel viewer: enabled (SDL2 found)")
-else()
-    message(STATUS "Panel viewer: disabled (optional dev tool; brew install sdl2)")
-endif()
-
 # ---- Build midi_ft_bridge ----
 
 include_directories(${CMAKE_SOURCE_DIR}/src)
