@@ -23,6 +23,15 @@ public:
     MidiInput();
     ~MidiInput();
 
+    // Names of all MIDI input sources currently available on the system.
+    // Static so the UI can populate a device picker without a running engine.
+    static std::vector<std::string> availableDevices();
+
+    // Restrict which source(s) start() connects to: a display-name substring
+    // (case-insensitive). Empty (the default) connects to every source.
+    // Must be called before start() to take effect.
+    void setPreferredDevice(const std::string& name) { m_preferredDevice = name; }
+
     // Start the MIDI listener thread
     // Auto-discovers and connects to USB MIDI devices
     bool start();
@@ -59,6 +68,7 @@ private:
     std::queue<MidiEvent> m_eventQueue;
     std::atomic<uint64_t> m_eventCount;
     std::string m_deviceName;
+    std::string m_preferredDevice;   // empty = connect to all sources
 
     // ALSA sequencer handle (void* to avoid header dependency)
     void* m_seqHandle;

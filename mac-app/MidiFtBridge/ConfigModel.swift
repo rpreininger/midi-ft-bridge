@@ -96,6 +96,7 @@ struct AppConfig: Codable, Equatable {
     var panels: [ConfigPanel] = []
     var clipsDir = "./clips"
     var midiChannel = -1     // 0-15 filter (chan 10 == 9); -1 = any
+    var midiDevice = ""      // preferred MIDI input (name substring); "" = all sources
     var mappings: [ConfigMapping] = []
     var defaultFps = 25
     var videoWidth = 256
@@ -109,6 +110,7 @@ struct AppConfig: Codable, Equatable {
         case panels
         case clipsDir = "clips_dir"
         case midiChannel = "midi_channel"
+        case midiDevice = "midi_device"
         case mappings
         case defaultFps = "default_fps"
         case videoWidth = "video_width"
@@ -125,6 +127,7 @@ struct AppConfig: Codable, Equatable {
         panels = try c.decodeIfPresent([ConfigPanel].self, forKey: .panels) ?? []
         clipsDir = try c.decodeIfPresent(String.self, forKey: .clipsDir) ?? "./clips"
         midiChannel = try c.decodeIfPresent(Int.self, forKey: .midiChannel) ?? -1
+        midiDevice = try c.decodeIfPresent(String.self, forKey: .midiDevice) ?? ""
         mappings = try c.decodeIfPresent([ConfigMapping].self, forKey: .mappings) ?? []
         defaultFps = try c.decodeIfPresent(Int.self, forKey: .defaultFps) ?? 25
         videoWidth = try c.decodeIfPresent(Int.self, forKey: .videoWidth) ?? 256

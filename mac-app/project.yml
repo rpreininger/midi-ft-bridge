@@ -58,6 +58,8 @@ targets:
           - "midi_input_macos.cpp"
           - "audio_player.h"
           - "audio_player_macos_native.cpp"
+          - "audio_output_macos.h"
+          - "audio_output_macos.mm"
           - "ble_sender.h"
           - "ble_sender_macos.mm"
           - "config.h"
@@ -69,6 +71,7 @@ targets:
       - sdk: CoreFoundation.framework
       - sdk: AppKit.framework
       - sdk: AudioToolbox.framework
+      - sdk: CoreAudio.framework
       - sdk: CoreBluetooth.framework
     info:
       path: MidiFtBridge/Info.plist

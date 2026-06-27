@@ -32,6 +32,11 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (instancetype)init;
 
+/// Display names of all MIDI input sources currently available on the system,
+/// for populating the config editor's device picker. Does not require a
+/// running engine.
++ (NSArray<NSString *> *)availableMIDIDevices;
+
 /// Returns YES on success. statusServer enables the legacy HTTP status page on config.web_port.
 - (BOOL)startWithConfigPath:(NSString *)configPath
                 statusServer:(BOOL)statusServer;

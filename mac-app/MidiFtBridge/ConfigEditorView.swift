@@ -15,6 +15,7 @@ struct ConfigEditorView: View {
     private enum Tab: Hashable { case general, panels, mappings }
     @State private var tab: Tab = .general
     @State private var mappingsDropTargeted = false
+    @State private var midiDevices: [String] = []
 
     var body: some View {
         VStack(spacing: 0) {
@@ -39,6 +40,7 @@ struct ConfigEditorView: View {
             footer
         }
         .frame(width: 660, height: 560)
+        .onAppear { midiDevices = MFBEngine.availableMIDIDevices() }
     }
 
     // MARK: - Footer
@@ -87,6 +89,25 @@ struct ConfigEditorView: View {
                 .help("CoreAudio output device name, or empty to disable")
             }
             Section("MIDI & Network") {
+                LabeledContent("MIDI input device") {
+                    HStack(spacing: 6) {
+                        Picker("", selection: $config.midiDevice) {
+                            Text("All sources").tag("")
+                            ForEach(midiDevices, id: \.self) { Text($0).tag($0) }
+                            // Preserve a configured device that isn't currently plugged in.
+                            if !config.midiDevice.isEmpty, !midiDevices.contains(config.midiDevice) {
+                                Text("\(config.midiDevice) (not connected)").tag(config.midiDevice)
+                            }
+                        }
+                        .labelsHidden()
+                        Button {
+                            midiDevices = MFBEngine.availableMIDIDevices()
+                        } label: { Image(systemName: "arrow.clockwise") }
+                            .buttonStyle(.borderless)
+                            .help("Rescan MIDI devices")
+                    }
+                }
+                .help("Which MIDI input to listen on. “All sources” connects to every device.")
                 labeledInt("MIDI channel (0–15, −1 = any)", $config.midiChannel)
                 labeledInt("Web status port", $config.webPort)
                 Toggle("Verbose debug logging", isOn: Binding(

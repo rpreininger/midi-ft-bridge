@@ -4,10 +4,16 @@
 #include "engine.h"
 
 #include <chrono>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
 #include <unistd.h>
+#include <sys/wait.h>
+
+#ifdef MFB_NATIVE_MACOS
+#include "audio_output_macos.h"
+#endif
 
 namespace {
 // True for panels we can SSH a shutdown to (FT Pi panels with a real IP).
@@ -15,12 +21,35 @@ bool isShutdownable(const PanelConfig& p) {
     return p.type == "ft" && !p.ip.empty() && p.ip != "127.0.0.1";
 }
 
-// Fire-and-forget SSH shutdown; returns a one-line "name (ip): sent|failed".
+// SSH shutdown; returns a one-line "name (ip): <result>".
+// Blocking (so we can report the real outcome) but bounded:
+//   - ConnectTimeout=3  -> give up quickly on an unreachable panel
+//   - BatchMode=yes     -> fail fast instead of hanging on a password prompt
+// The remote shutdown is backgrounded ('... &') so ssh returns 0 as soon as the
+// command is accepted, rather than exit 255 when the box drops the connection.
+// ssh's own stderr (auth / network errors) is captured for the status line.
 std::string sshShutdown(const PanelConfig& p) {
-    std::string cmd = "ssh -o ConnectTimeout=3 -o StrictHostKeyChecking=no root@" +
-                      p.ip + " 'sudo shutdown now' 2>&1 &";
-    int ret = system(cmd.c_str());
-    std::string line = p.name + " (" + p.ip + "): " + (ret == 0 ? "sent" : "failed");
+    std::string cmd = "ssh -o ConnectTimeout=3 -o BatchMode=yes "
+                      "-o StrictHostKeyChecking=no root@" + p.ip +
+                      " 'sudo shutdown now >/dev/null 2>&1 &' 2>&1";
+
+    std::string output;
+    int exitCode = -1;
+    if (FILE* pipe = popen(cmd.c_str(), "r")) {
+        char buf[256];
+        while (fgets(buf, sizeof(buf), pipe)) output += buf;
+        int rc = pclose(pipe);
+        exitCode = (rc == -1 || !WIFEXITED(rc)) ? -1 : WEXITSTATUS(rc);
+    }
+    while (!output.empty() &&
+           (output.back() == '\n' || output.back() == '\r' || output.back() == ' '))
+        output.pop_back();
+
+    std::string result = (exitCode == 0)
+        ? "shutdown sent"
+        : ("FAILED — " + (output.empty() ? ("ssh exit " + std::to_string(exitCode))
+                                          : output));
+    std::string line = p.name + " (" + p.ip + "): " + result;
     std::cerr << "Shutdown " << line << std::endl;
     return line + "\n";
 }
@@ -84,6 +113,21 @@ bool Engine::start(const std::string& configPath, bool statusServerEnabled) {
         }
     }
 
+#ifdef MFB_NATIVE_MACOS
+    // Route clip audio to the configured CoreAudio output device (if any).
+    // The user can also switch this live from the web UI; this just sets the
+    // startup default. Empty audio_output keeps the system default device.
+    if (!m_config.audio_output.empty()) {
+        std::string sel = macaudio::selectByNameSubstring(m_config.audio_output);
+        if (sel.empty()) {
+            std::cerr << "Engine: audio_output '" << m_config.audio_output
+                      << "' not found; using system default output" << std::endl;
+        } else {
+            std::cerr << "Engine: audio output -> " << sel << std::endl;
+        }
+    }
+#endif
+
     // Mapping lookup
     for (size_t i = 0; i < m_config.mappings.size(); ++i) {
         m_noteMappings[m_config.mappings[i].note] = static_cast<int>(i);
@@ -98,6 +142,7 @@ bool Engine::start(const std::string& configPath, bool statusServerEnabled) {
     m_lastPanelSend.resize(m_config.panels.size());
 
     // MIDI
+    m_midiInput.setPreferredDevice(m_config.midi_device);
     if (!m_midiInput.start()) {
         std::cerr << "Engine: MIDI input failed to start (continuing without MIDI)" << std::endl;
     }

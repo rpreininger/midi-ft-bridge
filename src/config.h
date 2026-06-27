@@ -40,7 +40,12 @@ struct Config {
     int video_height = 128;
     int web_port = 8080;
     int midi_channel = -1;  // MIDI channel filter (0-15, -1 = any). Channel 10 = 9 (0-indexed)
+    std::string midi_device;  // Preferred MIDI input device (display-name substring, case-
+                              // insensitive). Empty = connect to all available sources.
     std::string audio_device;  // ALSA PCM device for audio output (e.g. "hw:1,0"). Empty = disabled.
+    std::string audio_output;  // macOS: CoreAudio output device to route clip audio to (name
+                               // substring, case-insensitive). Empty = system default. Ignored
+                               // on Linux (ALSA uses audio_device).
     bool debug = false;     // Enable verbose BLE/send logging
 
     bool load(const std::string& path) {
@@ -127,7 +132,9 @@ struct Config {
         video_height = extractInt(json, "video_height", 128);
         web_port = extractInt(json, "web_port", 8080);
         midi_channel = extractInt(json, "midi_channel", -1);
+        midi_device = extractString(json, "midi_device");
         audio_device = extractString(json, "audio_device");
+        audio_output = extractString(json, "audio_output");
         debug = extractInt(json, "debug", 0) != 0;
 
         // Default panel src_w/src_h to full video dimensions if not set

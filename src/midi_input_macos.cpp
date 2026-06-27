@@ -10,6 +10,7 @@
 #include <CoreMIDI/CoreMIDI.h>
 #include <CoreFoundation/CoreFoundation.h>
 
+#include <cctype>
 #include <iostream>
 #include <vector>
 
@@ -87,7 +88,28 @@ void midiReadProc(const MIDIPacketList* pktList, void* readProcRefCon, void* /*s
     }
 }
 
+// Case-insensitive substring test, used to match a configured device name
+// against CoreMIDI's display names.
+bool nameMatches(const std::string& haystack, const std::string& needle) {
+    if (needle.empty()) return true;
+    auto lower = [](std::string s) {
+        for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        return s;
+    };
+    return lower(haystack).find(lower(needle)) != std::string::npos;
+}
+
 } // namespace
+
+std::vector<std::string> MidiInput::availableDevices() {
+    std::vector<std::string> names;
+    ItemCount nSources = MIDIGetNumberOfSources();
+    for (ItemCount i = 0; i < nSources; ++i) {
+        MIDIEndpointRef src = MIDIGetSource(i);
+        if (src) names.push_back(getEndpointName(src));
+    }
+    return names;
+}
 
 MidiInput::MidiInput()
     : m_running(false)
@@ -129,6 +151,12 @@ bool MidiInput::start() {
         if (!src) continue;
 
         std::string name = getEndpointName(src);
+        // When a preferred device is configured, skip sources that don't match.
+        if (!nameMatches(name, m_preferredDevice)) {
+            std::cerr << "MidiInput: Skipping " << name
+                      << " (does not match preferred \"" << m_preferredDevice << "\")" << std::endl;
+            continue;
+        }
         OSStatus cerr = MIDIPortConnectSource(port, src, nullptr);
         if (cerr == noErr) {
             std::cerr << "MidiInput: Connected to " << name << std::endl;
@@ -141,8 +169,14 @@ bool MidiInput::start() {
     }
 
     if (connected == 0) {
-        std::cerr << "MidiInput: No MIDI sources found." << std::endl;
-        m_deviceName = "(no MIDI sources)";
+        if (!m_preferredDevice.empty()) {
+            std::cerr << "MidiInput: No MIDI source matched \""
+                      << m_preferredDevice << "\"." << std::endl;
+            m_deviceName = "(no match: " + m_preferredDevice + ")";
+        } else {
+            std::cerr << "MidiInput: No MIDI sources found." << std::endl;
+            m_deviceName = "(no MIDI sources)";
+        }
     }
 
     // Stash CoreMIDI handles in the existing void*/int slots

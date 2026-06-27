@@ -10,17 +10,17 @@
       "panel" : "all"
     },
     {
-      "clip" : "mp4/Moon.mp4",
+      "clip" : "Prores/ProRes V2/cropped/mp4/OYM_PRORES.mp4",
       "note" : 37,
       "panel" : "all"
     },
     {
-      "clip" : "mp4/Pixel.mp4",
+      "clip" : "Prores/ProRes V2/cropped/mp4/PIXL_PRORES.mp4",
       "note" : 38,
       "panel" : "all"
     },
     {
-      "clip" : "mp4/Tennis.mp4",
+      "clip" : "Prores/ProRes V2/cropped/mp4/TTENNIS_PRORES.mp4",
       "note" : 39,
       "panel" : "all"
     },
@@ -45,7 +45,7 @@
       "panel" : "all"
     },
     {
-      "clip" : "mp4/Shrink.mp4",
+      "clip" : "Prores/ProRes V2/cropped/mp4/SHRINK_PRORES.mp4",
       "note" : 44,
       "panel" : "all"
     },
@@ -62,6 +62,16 @@
     {
       "clip" : "mp4/ZX.mp4",
       "note" : 47,
+      "panel" : "all"
+    },
+    {
+      "clip" : "Prores/ProRes V2/cropped/mp4/OYM_PRORES.mp4",
+      "note" : 48,
+      "panel" : "all"
+    },
+    {
+      "clip" : "Prores/ProRes V2/cropped/mp4/FLY_PRORES.mp4",
+      "note" : 49,
       "panel" : "all"
     }
   ],

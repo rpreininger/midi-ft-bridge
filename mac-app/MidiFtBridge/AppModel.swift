@@ -66,20 +66,39 @@ final class AppModel: NSObject, ObservableObject {
 
     private static let configPathKey = "MFBConfigPath"
 
-    @Published var configPath: String = {
-        // Restore previously-used path; otherwise scan likely locations.
+    @Published var configPath: String = AppModel.initialConfigPath() {
+        didSet { UserDefaults.standard.set(configPath, forKey: Self.configPathKey) }
+    }
+
+    /// Best-guess config path on launch:
+    ///   1. the last-used file (remembered across launches), else
+    ///   2. a config sitting next to the .app bundle — so a deployed app
+    ///      "just works" without Browsing (Finder launches it with cwd "/"),
+    ///      preferring config.json (the real panel config) over the local
+    ///      test config, else
+    ///   3. a config in the current working directory — handy when run from a
+    ///      terminal in the project/deploy folder, keeping the original
+    ///      config_local-first dev behavior.
+    private static func initialConfigPath() -> String {
+        let fm = FileManager.default
         if let saved = UserDefaults.standard.string(forKey: configPathKey),
-           FileManager.default.fileExists(atPath: saved) {
+           fm.fileExists(atPath: saved) {
             return saved
         }
-        let cwd = FileManager.default.currentDirectoryPath
-        for c in ["config_local.json", "config.json"] {
-            let p = "\(cwd)/\(c)"
-            if FileManager.default.fileExists(atPath: p) { return p }
+        // The folder containing the .app bundle (or the executable, when run
+        // unbundled). bundleURL is the .app itself, so step up one level.
+        let bundleDir = Bundle.main.bundleURL.deletingLastPathComponent().path
+        let cwd = fm.currentDirectoryPath
+        let candidates = [
+            "\(bundleDir)/config.json",
+            "\(bundleDir)/config_local.json",
+            "\(cwd)/config_local.json",
+            "\(cwd)/config.json",
+        ]
+        for p in candidates where fm.fileExists(atPath: p) {
+            return p
         }
         return ""
-    }() {
-        didSet { UserDefaults.standard.set(configPath, forKey: Self.configPathKey) }
     }
 
     private var statusTimer: Timer?

@@ -6,6 +6,7 @@
 
 #include "engine.h"
 #include "config.h"
+#include "midi_input.h"
 
 #include <memory>
 #include <string>
@@ -25,6 +26,14 @@
 
 - (void)dealloc {
     if (_engine) _engine->stop();
+}
+
++ (NSArray<NSString *> *)availableMIDIDevices {
+    NSMutableArray<NSString *> *result = [NSMutableArray array];
+    for (const std::string& name : MidiInput::availableDevices()) {
+        [result addObject:[NSString stringWithUTF8String:name.c_str()]];
+    }
+    return result;
 }
 
 #pragma mark - Lifecycle

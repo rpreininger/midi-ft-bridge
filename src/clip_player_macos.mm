@@ -24,6 +24,7 @@
 #import <AudioToolbox/AudioToolbox.h>
 
 #include "clip_player.h"
+#include "audio_output_macos.h"
 #include <atomic>
 #include <vector>
 #include <mutex>
@@ -253,6 +254,21 @@ bool ClipPlayer::Impl::setupPipeline(double startSec, bool startPaused) {
         fmt.mFramesPerPacket = 1;
         fmt.mBytesPerPacket = fmt.mBytesPerFrame;
         if (AudioQueueNewOutput(&fmt, Impl::aqRender, this, nullptr, nullptr, 0, &aq) == noErr) {
+            // Route to the user-selected CoreAudio output device (empty = system
+            // default). Selection is global (config default + live web-UI switch)
+            // and read fresh per clip, so a switch takes effect on the next clip.
+            std::string outUID = macaudio::getSelectedUID();
+            if (!outUID.empty()) {
+                CFStringRef cfUID = CFStringCreateWithCString(nullptr, outUID.c_str(),
+                                                              kCFStringEncodingUTF8);
+                OSStatus rerr = AudioQueueSetProperty(aq, kAudioQueueProperty_CurrentDevice,
+                                                      &cfUID, sizeof(cfUID));
+                if (rerr != noErr) {
+                    std::cerr << "ClipPlayer(macOS): could not route audio to device "
+                              << outUID << " (" << rerr << "); using default" << std::endl;
+                }
+                if (cfUID) CFRelease(cfUID);
+            }
             // Give the decoder a moment to prime the ring, then fill + enqueue.
             for (int i = 0; i < 50; ++i) {
                 { std::lock_guard<std::mutex> lk(pcmMtx); if (pcmAvail >= (size_t)AQ_BUF_FRAMES * OUT_CH) break; }
