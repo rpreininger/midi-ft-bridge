@@ -39,27 +39,11 @@ xcodebuild -project mac-app/MidiFtBridge.xcodeproj \
 The Xcode build adds real CoreBluetooth BLE output. No Homebrew dependencies —
 only system frameworks — so the `.app` is self-contained.
 
-### Headless CLI (optional)
-
-```bash
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build
-./build/midi_ft_bridge --config config.json --test
-```
-
-The CLI build uses the BLE *stub* (CoreBluetooth needs an app bundle for the
-Bluetooth permission prompt), so BLE output only works from the `.app`.
-
-`deploy/build-macos.sh` packages the CLI binary + clips into a zip.
-
 ## Running
 
-```bash
-./midi_ft_bridge --config config.json         # production (MIDI input)
-./midi_ft_bridge --config config.json --test  # keyboard test mode (1-9,0,-,=)
-```
-
-Status web page at http://localhost:8080
+Launch the app, set the config path, and press Start. The preview pane renders
+each panel live, and the transport / config editor cover everything. Remote
+read-only monitoring is at http://<this-mac-ip>:8080.
 
 ## Architecture
 
@@ -75,8 +59,7 @@ Main thread:    query audio clock → pick matching video frame → send to pane
 
 | File | Purpose |
 |------|---------|
-| `main.cpp` | CLI entry: MIDI poll → get frame from ClipPlayer → send to panels |
-| `engine.cpp/h` | Orchestrates clip playback, panels, MIDI, status server (used by the app) |
+| `engine.cpp/h` | Orchestrates clip playback, panels, MIDI, status server (driven by the app via EngineBridge) |
 | `clip_player.h` | Player interface; macOS impl is the AVFoundation pimpl |
 | `clip_player_macos.mm` | AVFoundation decode + audio-master sync |
 | `audio_output_macos.mm/.h` | CoreAudio (AudioQueue) output, ring buffer, master clock |
@@ -84,8 +67,7 @@ Main thread:    query audio clock → pick matching video frame → send to pane
 | `midi_input_macos.cpp` | CoreMIDI listener; enumerates + connects USB MIDI sources |
 | `ft_sender.cpp/h` | UDP PPM sender, tile mode to avoid IP fragmentation |
 | `ble_sender_macos.mm` | CoreBluetooth BLE sender for the iPixel panel |
-| `ble_sender_stub.cpp` | No-op BLE for the headless CLI build |
-| `status_server.cpp/h` | HTTP status page with panel state, MIDI log, test buttons |
+| `status_server.cpp/h` | Read-only HTTP monitor (panel state, MIDI log) + clip-trigger backup |
 | `config.h` | JSON config parser (header-only) |
 
 The Swift app in `mac-app/` wraps the C++ engine through `EngineBridge.mm`

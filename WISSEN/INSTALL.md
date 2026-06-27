@@ -46,17 +46,6 @@ libraries are bundled — the app uses only system frameworks.
 > reports it as "damaged". De-quarantine it on that machine:
 > `xattr -dr com.apple.quarantine "/Applications/MIDI-FT Bridge.app"`.
 
-### Headless CLI (optional)
-
-```bash
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build
-./build/midi_ft_bridge --config config.json --test
-```
-
-The CLI build uses the BLE stub (CoreBluetooth needs an app bundle for the
-Bluetooth permission), so BLE output only works from the `.app`.
-
 ## 2. Network (Mango AP)
 
 Configure the Mango as the panel AP at 192.168.10.1/24 and pin each panel to a
@@ -148,9 +137,9 @@ Edit `config.json` (or use the in-app **Edit Config…** editor):
 
 - **Live MIDI:** launch the app, connect the Fantom via USB. The connected
   device shows next to the 🎹 icon; notes 36–47 on channel 10 trigger clips.
-- **Keyboard test (no MIDI):** the app's "Loop All (Test)" button, or the CLI
-  `./build/midi_ft_bridge --config config.json --test` (keys 1–9, 0, -, =).
-- **Status web page:** http://localhost:8080
+- **Without MIDI:** the app's "Loop All (Test)" button cycles every mapping;
+  individual rows have a "Trigger" button.
+- **Status web page:** http://localhost:8080 (also remotely from a phone)
 
 ## Troubleshooting
 
