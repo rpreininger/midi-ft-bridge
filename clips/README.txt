@@ -1,9 +1,7 @@
-Place video clips here (mp4, avi, mkv, mov).
+Place video clips here (mp4).
 
-These are mapped to MIDI notes via config.json.
-Resolution should match panel size (default: 128x64).
+These are mapped to MIDI notes via config.json. Pre-encode at the full
+canvas resolution (288x128) with audio — see "Clip Preparation" in NOTES.md.
 
 Example config.json mapping:
-  { "note": 36, "panel": "A", "clip": "fire.mp4" }
-
-Clips are deployed to the Pi via: deploy/deploy.sh pi@<ip>
+  { "note": 36, "panel": "all", "clip": "mp4/Fly.mp4" }

@@ -1,268 +1,100 @@
 # midi-ft-bridge - Installation Guide
 
-MIDI to Flaschen-Taschen bridge for Roland Fantom 06/07/08.
-Receives USB MIDI note events and streams mapped MP4 video clips
-to Flaschen-Taschen LED panels and a BLE pixel panel.
+MIDI to Flaschen-Taschen bridge for the Roland Fantom 06/07/08, running
+natively on macOS. Receives USB MIDI note events and streams mapped MP4 video
+clips (with audio) to Flaschen-Taschen LED panels and an iPixel Color BLE
+panel.
+
+> The earlier Raspberry-Pi-as-hub version is frozen at git tag `raspi-final`
+> (`git checkout raspi-final`). This guide covers the macOS build only.
 
 ## Hardware
 
 | Device | Role |
 |--------|------|
-| Raspberry Pi 4B | Hub: WiFi AP, MIDI input, video decode, frame dispatch |
-| Panel A (bigpanel) | FT 128x128, IP 192.168.10.21 |
-| Panel B (ericpanel) | FT 128x64, IP 192.168.10.22 |
-| Panel C (ralfpanel) | FT 128x64, IP 192.168.10.20 |
-| BLE panel (iPixel Color) | BLE 32x16, via bt_bridge.py on localhost:1340 |
+| Mac | Hub: MIDI input, video decode, frame dispatch, BLE |
+| GL.iNet Mango router | WiFi AP for the panels (LAN 192.168.10.1/24) |
+| Panel A (bigpanel) | FT 128x128, IP 192.168.10.21, MAC 88:a2:9e:75:ff:eb |
+| Panel B (ericpanel) | FT 128x64, IP 192.168.10.22, MAC d8:3a:dd:de:93:19 |
+| Panel C (ralfpanel) | FT 128x64, IP 192.168.10.20, MAC 2c:cf:67:cd:6c:8c |
+| BLE panel (iPixel Color) | BLE 32x16, `LED_BLE_25F1E13D` / D2:DF:25:F1:E1:3D |
 | Roland Fantom 06 | USB MIDI input |
 
-## 1. Fresh Pi 4B Setup
+The Mac connects to the Mango router over a USB-C Ethernet dongle; the panels
+(still Pi Zeros running `ft-server`) join the Mango over WiFi.
 
-Flash Raspberry Pi OS Bookworm (64-bit) to SD card. Create user `stratojets`.
-Plug in Ethernet for internet during setup.
+## 1. Build & Install the macOS App
 
-### Set hostname
-```bash
-sudo hostnamectl set-hostname strato_accesspoint
-```
-
-## 2. WiFi Access Point
-
-### Tell NetworkManager to leave wlan0 alone
-```bash
-sudo tee /etc/NetworkManager/conf.d/unmanaged-wlan0.conf << 'EOF'
-[keyfile]
-unmanaged-devices=interface-name:wlan0
-EOF
-sudo systemctl restart NetworkManager
-```
-
-### Static IP on boot
-```bash
-sudo tee /etc/systemd/system/wlan0-static.service << 'EOF'
-[Unit]
-Description=Static IP for wlan0
-Before=hostapd.service dnsmasq.service
-After=sys-subsystem-net-devices-wlan0.device
-
-[Service]
-Type=oneshot
-ExecStart=/sbin/ip addr add 192.168.10.1/24 dev wlan0
-ExecStart=/sbin/ip link set wlan0 up
-RemainAfterExit=yes
-
-[Install]
-WantedBy=multi-user.target
-EOF
-sudo systemctl daemon-reload
-sudo systemctl enable wlan0-static
-```
-
-### Install and configure hostapd
-```bash
-sudo apt install -y hostapd
-sudo tee /etc/hostapd/hostapd.conf << 'EOF'
-interface=wlan0
-driver=nl80211
-ssid=strato_accesspoint
-hw_mode=g
-channel=6
-macaddr_acl=0
-auth_algs=1
-ignore_broadcast_ssid=0
-wpa=2
-wpa_passphrase=YOUR_PASSWORD
-wpa_key_mgmt=WPA-PSK
-rsn_pairwise=CCMP
-EOF
-sudo systemctl unmask hostapd
-sudo systemctl enable hostapd
-```
-
-### Install and configure dnsmasq (DHCP)
-```bash
-sudo apt install -y dnsmasq
-sudo tee /etc/dnsmasq.conf << 'EOF'
-interface=wlan0
-bind-interfaces
-dhcp-range=192.168.10.50,192.168.10.100,255.255.255.0,24h
-domain-needed
-bogus-priv
-dhcp-host=88:a2:9e:75:ff:eb,192.168.10.21,bigpanel
-dhcp-host=d8:3a:dd:de:93:19,192.168.10.22,ericpanel
-dhcp-host=2c:cf:67:cd:6c:8c,192.168.10.20,ralfpanel
-EOF
-sudo systemctl enable dnsmasq
-```
-
-### Disable WiFi power save
-```bash
-sudo tee /etc/systemd/system/wifi-powersave-off.service << 'EOF'
-[Unit]
-Description=Disable WiFi power save
-After=wlan0-static.service
-
-[Service]
-Type=oneshot
-ExecStart=/sbin/iw wlan0 set power_save off
-RemainAfterExit=yes
-
-[Install]
-WantedBy=multi-user.target
-EOF
-sudo systemctl daemon-reload
-sudo systemctl enable wifi-powersave-off
-```
-
-### Reboot and verify
-```bash
-sudo reboot
-# After reboot:
-ip addr show wlan0              # should show 192.168.10.1
-sudo systemctl status hostapd   # active (running)
-sudo systemctl status dnsmasq   # active (running)
-iw wlan0 get power_save         # Power save: off
-```
-
-## 3. Install Dependencies
+The shipping app is the Xcode project in `mac-app/`.
 
 ```bash
-sudo apt update && sudo apt install -y \
-    ffmpeg libasound2-dev libavformat-dev libavcodec-dev \
-    libswscale-dev libavutil-dev libdbus-1-dev \
-    python3-full python3-venv bluetooth bluez
+# One-time: install the project generator
+brew install xcodegen
+
+# Generate the .xcodeproj (it is git-ignored, regenerated from project.yml)
+xcodegen generate --spec mac-app/project.yml
+
+# Build (Release)
+xcodebuild -project mac-app/MidiFtBridge.xcodeproj \
+    -scheme MidiFtBridge -configuration Release build
 ```
 
-## 4. Bluetooth Setup (iPixel BLE panel)
+Then drag the built `MIDI-FT Bridge.app` into `/Applications`. No Homebrew
+libraries are bundled — the app uses only system frameworks.
+
+> **Distributing to another Mac:** the app is ad-hoc signed, so a fresh Mac
+> reports it as "damaged". De-quarantine it on that machine:
+> `xattr -dr com.apple.quarantine "/Applications/MIDI-FT Bridge.app"`.
+
+### Headless CLI (optional)
 
 ```bash
-sudo rfkill unblock bluetooth
-sudo systemctl enable bluetooth
-sudo systemctl start bluetooth
-
-# Trust the BLE panel (no pairing needed)
-sudo bluetoothctl
-> trust D2:DF:25:F1:E1:3D
-> exit
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+./build/midi_ft_bridge --config config.json --test
 ```
 
-### Python venv for bt_bridge.py
+The CLI build uses the BLE stub (CoreBluetooth needs an app bundle for the
+Bluetooth permission), so BLE output only works from the `.app`.
 
-Bookworm requires a venv for pip packages:
-```bash
-sudo python3 -m venv /opt/bt-bridge-venv
-sudo /opt/bt-bridge-venv/bin/pip install bleak Pillow
-```
+## 2. Network (Mango AP)
 
-## 5. Deploy midi-ft-bridge
+Configure the Mango as the panel AP at 192.168.10.1/24 and pin each panel to a
+fixed IP by DHCP reservation (router admin → DHCP/LAN → Address Reservation),
+using the MAC/IP pairs from the hardware table above.
 
-### Option A: Deploy script (from dev machine)
-
-Requires SSH key auth: `ssh-copy-id stratojets@192.168.10.1`
+Two helper scripts reduce "one panel reboots → the others jitter" (shared-WiFi
+airtime loss):
 
 ```bash
-# First time (packages + venv + services):
-bash deploy/deploy.sh stratojets@192.168.10.1 --setup
+# On the router (evicts dead clients fast + pins IPs). Edit the MAC table first.
+ssh root@192.168.10.1 'sh -s' < setup/tune-glinet-ap.sh
 
-# Update binary, config, clips only:
-bash deploy/deploy.sh stratojets@192.168.10.1
-
-# Update and restart services:
-bash deploy/deploy.sh stratojets@192.168.10.1 --restart
+# On the Mac (static ARP so a panel reboot causes no ARP churn). Edit the table.
+./setup/set-static-arp-macos.sh
 ```
 
-### Option B: Manual
+## 3. Panel Setup (each FT panel)
+
+The panels are Pi Zeros running flaschen-taschen `ft-server`. `setup/setup-panel.sh`
+configures a panel Pi to auto-join the AP WiFi and run `ft-server`. Run it on
+each panel (edit the SSID/passphrase at the top to match your Mango AP):
 
 ```bash
-# On the Pi:
-mkdir -p /home/stratojets/midi-ft-bridge/clips
-
-# From dev machine:
-scp build-aarch64/midi_ft_bridge stratojets@192.168.10.1:/home/stratojets/midi-ft-bridge/
-scp config.json stratojets@192.168.10.1:/home/stratojets/midi-ft-bridge/
-scp bt_bridge.py stratojets@192.168.10.1:/home/stratojets/midi-ft-bridge/
-scp clips/*.mp4 stratojets@192.168.10.1:/home/stratojets/midi-ft-bridge/clips/
-ssh stratojets@192.168.10.1 "chmod +x ~/midi-ft-bridge/midi_ft_bridge"
+sudo bash setup-panel.sh
 ```
 
-## 6. Systemd Services
+Panel A serves `-D 128x128`; panels B and C serve `-D 128x64`.
 
-### midi-ft-bridge (main video bridge)
-```bash
-sudo cp midi-ft-bridge.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable midi-ft-bridge
-sudo systemctl start midi-ft-bridge
-```
+## 4. Bluetooth (iPixel BLE panel)
 
-### bt-bridge (BLE panel bridge)
-```bash
-sudo cp bt-bridge.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable bt-bridge
-sudo systemctl start bt-bridge
-```
+No setup needed beyond granting the app Bluetooth permission on first launch
+(Info.plist already declares the usage string). macOS matches the panel by
+local name (`ble_name` in config), so no manual pairing.
 
-The bt-bridge service uses `/opt/bt-bridge-venv/bin/python3` and starts after
-bluetooth and midi-ft-bridge, with a 5-second delay for BLE init.
+## 5. Configuration
 
-## 7. Panel Setup
-
-Each FT panel needs ft-server running. Connect each panel to the AP first:
-```bash
-nmcli --ask device wifi connect "strato_accesspoint"
-```
-
-### Panel A (bigpanel) - 128x128
-```bash
-sudo tee /etc/systemd/system/ft-server.service << 'EOF'
-[Unit]
-Description=Flaschen-Taschen Server
-After=network.target
-
-[Service]
-Type=simple
-ExecStart=/home/bigpanel/dev/flaschen-taschen/server/ft-server -D 128x128
-WorkingDirectory=/home/bigpanel/dev/flaschen-taschen/server
-Restart=on-failure
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-EOF
-sudo systemctl daemon-reload
-sudo systemctl enable ft-server
-sudo systemctl start ft-server
-```
-
-### Panel B (ericpanel) and Panel C (ralfpanel) - 128x64
-Same as above but with `-D 128x64` and adjust the ExecStart path to match
-each panel's ft-server binary location.
-
-## 8. Building from Source
-
-### Cross-compile on PC (WSL)
-
-```bash
-sudo apt install gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
-
-mkdir -p build-aarch64 && cd build-aarch64
-cmake -DCMAKE_TOOLCHAIN_FILE=../cmake/aarch64-toolchain.cmake ..
-cmake --build .
-```
-
-FFmpeg headers and libraries must be available in `libs/` (copied from the Pi).
-
-### Native build (on Pi)
-
-```bash
-mkdir -p build && cd build
-cmake ..
-cmake --build .
-```
-
-## 9. Configuration
-
-Edit `config.json`:
+Edit `config.json` (or use the in-app **Edit Config…** editor):
 
 ```json
 {
@@ -270,12 +102,13 @@ Edit `config.json`:
     { "name": "A_bigpanel", "ip": "192.168.10.21", "port": 1337, "src_x": 0, "src_y": 0, "src_w": 128, "src_h": 128 },
     { "name": "B_ericpanel", "ip": "192.168.10.22", "port": 1337, "src_x": 128, "src_y": 0, "src_w": 128, "src_h": 64 },
     { "name": "C_ralfpanel", "ip": "192.168.10.20", "port": 1337, "src_x": 128, "src_y": 64, "src_w": 128, "src_h": 64 },
-    { "name": "BT", "ip": "127.0.0.1", "port": 1340, "brightness": 80, "src_x": 256, "src_y": 0, "src_w": 32, "src_h": 16, "max_fps": 10, "type": "ble_udp" }
+    { "name": "BT", "ip": "127.0.0.1", "ble_name": "LED_BLE_25F1E13D", "brightness": 80, "src_x": 256, "src_y": 0, "src_w": 32, "src_h": 16, "max_fps": 10, "type": "ble" }
   ],
   "clips_dir": "./clips",
   "midi_channel": 9,
+  "midi_device": "",
   "mappings": [
-    { "note": 36, "panel": "all", "clip": "1.INTRO.mp4" }
+    { "note": 36, "panel": "all", "clip": "mp4/Fly.mp4" }
   ],
   "default_fps": 25,
   "video_width": 288,
@@ -290,12 +123,13 @@ Edit `config.json`:
 | Field | Description |
 |-------|-------------|
 | `panels` | FT/BLE panel targets with crop regions |
-| `src_x/y/w/h` | Region to extract from decoded video frame |
+| `src_x/y/w/h` | Region to extract from the decoded video frame |
 | `midi_channel` | MIDI channel filter (0-indexed, 9 = ch10). -1 = any |
-| `mappings` | MIDI note to video clip mapping |
+| `midi_device` | Preferred MIDI input (name substring). Empty = all sources. Set it in the config editor's device picker |
+| `mappings` | MIDI note → video clip mapping |
 | `clips_dir` | Directory containing MP4 video clips |
 | `video_width/height` | Full video decode resolution (288x128) |
-| `type` | Panel type: omit for FT, `"ble_udp"` for BLE via UDP bridge |
+| `type` | Panel type: omit for FT, `"ble"` for native CoreBluetooth BLE |
 | `max_fps` | Per-panel FPS throttle (for BLE bandwidth) |
 | `web_port` | Status web UI port |
 
@@ -310,77 +144,33 @@ Edit `config.json`:
 | E2 | 40 | A#2 | 46 |
 | F2 | 41 | B2 | 47 |
 
-## 10. Testing
+## 6. Testing
 
-### Keyboard test (no MIDI needed)
-```bash
-sudo systemctl stop midi-ft-bridge
-cd /home/stratojets/midi-ft-bridge
-sudo ./midi_ft_bridge --test --config config.json
-```
-
-| Key | Clip | Key | Clip |
-|-----|------|-----|------|
-| 1 | 1.INTRO.mp4 | 7 | 7.MAGNETO.mp4 |
-| 2 | 2.FRF.mp4 | 8 | 8.JIFFY.mp4 |
-| 3 | 3.MOON.mp4 | 9 | 10.SHIN.mp4 |
-| 4 | 4.PIXL.mp4 | 0 | 11.SHRINK.mp4 |
-| 5 | 5.TENNIS.mp4 | - | 12.AXEL.mp4 |
-| 6 | 6.NEU.mp4 | = | AXEL START.mp4 |
-| Q | Quit | | |
-
-### MIDI test (live)
-```bash
-sudo systemctl start midi-ft-bridge
-```
-Connect Roland Fantom 06 via USB. Notes 36-47 on channel 10 trigger clips.
-
-### Check services
-```bash
-sudo systemctl status midi-ft-bridge
-sudo systemctl status bt-bridge
-journalctl -u midi-ft-bridge --no-pager -n 20
-journalctl -u bt-bridge --no-pager -n 20
-```
-
-### Verify network
-```bash
-cat /var/lib/misc/dnsmasq.leases
-iw dev wlan0 station dump
-ping -c 3 192.168.10.20  # ralfpanel
-ping -c 3 192.168.10.21  # bigpanel
-ping -c 3 192.168.10.22  # ericpanel
-```
-
-### Web status page
-http://192.168.10.1:8080
+- **Live MIDI:** launch the app, connect the Fantom via USB. The connected
+  device shows next to the 🎹 icon; notes 36–47 on channel 10 trigger clips.
+- **Keyboard test (no MIDI):** the app's "Loop All (Test)" button, or the CLI
+  `./build/midi_ft_bridge --config config.json --test` (keys 1–9, 0, -, =).
+- **Status web page:** http://localhost:8080
 
 ## Troubleshooting
 
 ### No MIDI device detected
-- Check USB connection: `lsusb` should show Roland device
-- Check ALSA: `aconnect -l` should list the Fantom
-- Make sure MIDI is plugged into a USB-A port (not USB-C power)
+- Check the device shows in **Audio MIDI Setup → MIDI Studio**.
+- In the app's **Edit Config… → General → MIDI input device**, hit the rescan
+  button; pick the device (or "All sources").
+- Make sure the Fantom is on a USB-A data port (not USB-C power only).
 
 ### No image on a panel
-- Verify ft-server is running on the panel: `ss -ulnp | grep 1337`
-- Ping the panel from the Pi: `ping 192.168.10.XX`
-- Check ft-server resolution matches config (`-D 128x128` or `-D 128x64`)
+- Verify `ft-server` is running on the panel: `ss -ulnp | grep 1337`.
+- Ping the panel: `ping 192.168.10.XX`.
+- Check the `ft-server` resolution matches config (`-D 128x128` / `-D 128x64`).
 
 ### BLE panel not working
-- Check bt-bridge service: `sudo systemctl status bt-bridge`
-- Verify Bluetooth is on: `bluetoothctl show` (Powered: yes)
-- If blocked: `sudo rfkill unblock bluetooth`
-- Check UDP: `ss -ulnp | grep 1340`
+- Grant the app Bluetooth permission (System Settings → Privacy → Bluetooth).
+- Confirm the panel name matches `ble_name` in config (`LED_BLE_25F1E13D`).
+- BLE tops out ~2–5 FPS; keep the panel's `max_fps` low.
 
-### WiFi panels won't connect
-- Check hostapd: `sudo systemctl status hostapd`
-- Check dnsmasq: `sudo systemctl status dnsmasq`
-- Verify wlan0 has IP: `ip addr show wlan0`
-- Check leases: `cat /var/lib/misc/dnsmasq.leases`
-
-### Service won't start
-- Check logs: `sudo journalctl -u midi-ft-bridge -n 50`
-- Verify binary: `ls -la ~/midi-ft-bridge/midi_ft_bridge`
-- Verify config: `cat ~/midi-ft-bridge/config.json`
-- Test manually first: `sudo ./midi_ft_bridge --config config.json --test`
+### WiFi panels won't connect / jitter
+- Check the Mango admin shows the panels with their reserved IPs.
+- Re-run `setup/tune-glinet-ap.sh` (router) and `setup/set-static-arp-macos.sh`
+  (Mac). Note: macOS static ARP does not survive a reboot — re-run after one.
