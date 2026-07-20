@@ -276,32 +276,47 @@ struct ContentView: View {
                 transportSection
             }
 
-            if model.running && !model.panelStatus.isEmpty {
-                panelStatusSection
-                Divider()
-            }
+            Divider()
 
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 2) {
-                        ForEach(model.mappings) { m in
-                            mappingRow(m)
-                                .id(m.index)
-                        }
-                    }
+            if model.running && !model.panelStatus.isEmpty {
+                HSplitView {
+                    panelStatusSection
+                        .padding(.trailing, 8)
+                        .frame(minWidth: 280, idealWidth: 340)
+
+                    mappingList
+                        .padding(.leading, 8)
+                        .frame(minWidth: 320)
                 }
-                .onChange(of: model.selectedIndex) { newIdx in
-                    if let i = newIdx {
-                        withAnimation(.easeOut(duration: 0.15)) {
-                            proxy.scrollTo(i, anchor: .center)
-                        }
-                    }
-                }
+            } else {
+                mappingList
             }
-            .background(Color(NSColor.controlBackgroundColor))
-            .clipShape(RoundedRectangle(cornerRadius: 6))
         }
         .padding()
+    }
+
+    /// Scrollable list of note → clip mappings, kept in sync with the
+    /// keyboard selection.
+    private var mappingList: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 2) {
+                    ForEach(model.mappings) { m in
+                        mappingRow(m)
+                            .id(m.index)
+                    }
+                }
+            }
+            .onChange(of: model.selectedIndex) { newIdx in
+                if let i = newIdx {
+                    withAnimation(.easeOut(duration: 0.15)) {
+                        proxy.scrollTo(i, anchor: .center)
+                    }
+                }
+            }
+        }
+        .background(Color(NSColor.controlBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 
     // MARK: - Transport
@@ -367,30 +382,43 @@ struct ContentView: View {
                     .controlSize(.small)
                     .disabled(!canShutdownAny)
             }
-            ForEach(model.panelStatus) { panelStatusRow($0) }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(model.panelStatus) { panelStatusRow($0) }
+                }
+            }
+            .background(Color(NSColor.controlBackgroundColor))
+            .clipShape(RoundedRectangle(cornerRadius: 6))
         }
     }
 
     @ViewBuilder
     private func panelStatusRow(_ p: PanelStatusInfo) -> some View {
-        HStack(spacing: 8) {
-            Circle()
-                .fill(statusColor(p))
-                .frame(width: 9, height: 9)
-            Text(p.name)
-                .font(.system(.body, design: .monospaced))
-                .frame(width: 70, alignment: .leading)
-            Text(p.ip.isEmpty ? "—" : "\(p.ip):\(p.port)")
-                .font(.caption).foregroundStyle(.secondary)
-            Spacer()
-            Text("\(p.framesSent) f · \(formatBytes(p.bytesSent))")
-                .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-            Button("Shut Down") { shutdownTarget = .panel(p.name) }
-                .buttonStyle(.borderless)
-                .controlSize(.small)
-                .disabled(!p.canShutdown)
+        // Two lines: the column is narrower than the old full-width row.
+        VStack(alignment: .leading, spacing: 1) {
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(statusColor(p))
+                    .frame(width: 9, height: 9)
+                Text(p.name)
+                    .font(.system(.body, design: .monospaced))
+                    .lineLimit(1)
+                Spacer()
+                Button("Shut Down") { shutdownTarget = .panel(p.name) }
+                    .buttonStyle(.borderless)
+                    .controlSize(.small)
+                    .disabled(!p.canShutdown)
+            }
+            HStack(spacing: 8) {
+                Text(p.ip.isEmpty ? "—" : "\(p.ip):\(p.port)")
+                    .font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Text("\(p.framesSent) f · \(formatBytes(p.bytesSent))")
+                    .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+            }
+            .padding(.leading, 17)
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 3)
         .padding(.horizontal, 6)
     }
 
