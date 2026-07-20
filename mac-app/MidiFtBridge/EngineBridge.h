@@ -37,6 +37,10 @@ NS_ASSUME_NONNULL_BEGIN
 /// running engine.
 + (NSArray<NSString *> *)availableMIDIDevices;
 
+/// Switch MIDI input source without restarting the engine. Pass a display-name
+/// substring, or @"" for "all sources". Returns YES if a source connected.
+- (BOOL)setMIDIDevice:(NSString *)name;
+
 /// Names of all CoreAudio output devices, for the config editor's audio-output
 /// picker. Does not require a running engine.
 + (NSArray<NSString *> *)availableAudioOutputs;

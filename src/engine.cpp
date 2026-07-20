@@ -355,6 +355,11 @@ std::string Engine::getMidiDeviceName() const {
     return m_midiInput.getDeviceName();
 }
 
+bool Engine::setMidiDevice(const std::string& name) {
+    m_config.midi_device = name;
+    return m_midiInput.switchDevice(name);
+}
+
 std::vector<PanelStatus> Engine::getPanelStatus() const {
     std::lock_guard<std::mutex> lock(m_panelStatusMutex);
     return m_lastPanelStatus;

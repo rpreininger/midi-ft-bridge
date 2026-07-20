@@ -93,6 +93,11 @@ public:
 
     std::string getMidiDeviceName() const;
 
+    // Switch MIDI input source while running (display-name substring; empty =
+    // all sources). Updates the in-memory config so a later config save keeps
+    // the choice. Returns true if at least one source connected.
+    bool setMidiDevice(const std::string& name);
+
     // Latest per-panel live status (frames/bytes sent, connected, active clip).
     // Refreshed each worker tick; safe to call from any thread.
     std::vector<PanelStatus> getPanelStatus() const;

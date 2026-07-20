@@ -37,6 +37,11 @@
     return result;
 }
 
+- (BOOL)setMIDIDevice:(NSString *)name {
+    if (!_engine) return NO;
+    return _engine->setMidiDevice(std::string(name.UTF8String ?: "")) ? YES : NO;
+}
+
 + (NSArray<NSString *> *)availableAudioOutputs {
     NSMutableArray<NSString *> *result = [NSMutableArray array];
     for (const std::string& name : macaudio::outputDeviceNames()) {

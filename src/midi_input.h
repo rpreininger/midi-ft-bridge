@@ -3,6 +3,7 @@
 // ====================================================================
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <thread>
 #include <mutex>
@@ -31,6 +32,12 @@ public:
     // (case-insensitive). Empty (the default) connects to every source.
     // Must be called before start() to take effect.
     void setPreferredDevice(const std::string& name) { m_preferredDevice = name; }
+
+    // Switch the preferred device while running: disconnects the currently
+    // connected sources and connects those matching `name` instead, without
+    // restarting the engine. Safe to call before start() too (behaves like
+    // setPreferredDevice). Returns true if at least one source connected.
+    bool switchDevice(const std::string& name);
 
     // Start the MIDI listener thread
     // Auto-discovers and connects to USB MIDI devices
@@ -67,8 +74,17 @@ private:
     std::mutex m_mutex;
     std::queue<MidiEvent> m_eventQueue;
     std::atomic<uint64_t> m_eventCount;
+    // Device selection state. Guarded by m_deviceMutex because switchDevice()
+    // and getDeviceName() are called from the UI thread while the CoreMIDI
+    // callback thread is delivering packets.
+    mutable std::mutex m_deviceMutex;
     std::string m_deviceName;
     std::string m_preferredDevice;   // empty = connect to all sources
+    std::vector<uint32_t> m_connectedSources;  // MIDIEndpointRefs currently connected
+
+    // Connect every source matching m_preferredDevice, filling m_deviceName and
+    // m_connectedSources. Caller must hold m_deviceMutex.
+    int connectMatchingSourcesLocked();
 
     // ALSA sequencer handle (void* to avoid header dependency)
     void* m_seqHandle;

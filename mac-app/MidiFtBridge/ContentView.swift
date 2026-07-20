@@ -242,8 +242,7 @@ struct ContentView: View {
             }
 
             HStack(spacing: 16) {
-                Label(model.midiDeviceName.isEmpty ? "—" : model.midiDeviceName,
-                      systemImage: "pianokeys")
+                midiDevicePicker
                 Label(model.activeClipName.isEmpty ? "idle" : model.activeClipName,
                       systemImage: model.clipPaused ? "pause.rectangle" : "play.rectangle")
                 Spacer()
@@ -317,6 +316,43 @@ struct ContentView: View {
         }
         .background(Color(NSColor.controlBackgroundColor))
         .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
+
+    // MARK: - MIDI device picker
+
+    /// Live MIDI input selector. Changing it reconnects CoreMIDI immediately —
+    /// no engine restart — and writes the choice back to the config file.
+    private var midiDevicePicker: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "pianokeys")
+            Picker("", selection: midiSelectionBinding) {
+                Text("All sources").tag("")
+                ForEach(model.midiDevices, id: \.self) { Text($0).tag($0) }
+                // Keep a configured device visible even when it's unplugged.
+                if !model.midiDeviceSelection.isEmpty,
+                   !model.midiDevices.contains(model.midiDeviceSelection) {
+                    Text("\(model.midiDeviceSelection) (not connected)")
+                        .tag(model.midiDeviceSelection)
+                }
+            }
+            .labelsHidden()
+            .frame(maxWidth: 220)
+            .help(model.midiDeviceName.isEmpty
+                  ? "MIDI input source"
+                  : "Connected: \(model.midiDeviceName)")
+
+            Button { model.refreshMidiDevices() } label: {
+                Image(systemName: "arrow.clockwise")
+            }
+            .buttonStyle(.borderless)
+            .help("Rescan MIDI devices")
+        }
+        .onAppear { model.refreshMidiDevices() }
+    }
+
+    private var midiSelectionBinding: Binding<String> {
+        Binding(get: { model.midiDeviceSelection },
+                set: { model.selectMidiDevice($0) })
     }
 
     // MARK: - Transport

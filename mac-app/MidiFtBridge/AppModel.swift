@@ -51,6 +51,13 @@ final class AppModel: NSObject, ObservableObject {
     /// doesn't fight the thumb position.
     var isScrubbing = false
     @Published var midiDeviceName = ""
+
+    /// MIDI input sources currently present on the system, for the picker.
+    @Published var midiDevices: [String] = []
+
+    /// The user's chosen source ("" = listen to all). Applied to a running
+    /// engine immediately; persisted to the config file so it survives restart.
+    @Published var midiDeviceSelection = ""
     @Published var canvasSize = NSSize(width: 0, height: 0)
     @Published var panels: [PanelInfo] = []
     @Published var panelStatus: [PanelStatusInfo] = []
@@ -173,6 +180,45 @@ final class AppModel: NSObject, ObservableObject {
         showConfigEditor = false
     }
 
+    // MARK: - MIDI device selection
+
+    /// Re-read the list of MIDI sources from CoreMIDI (devices come and go
+    /// when cables are plugged in).
+    func refreshMidiDevices() {
+        midiDevices = MFBEngine.availableMIDIDevices()
+    }
+
+    /// Switch MIDI input on the fly. Takes effect on the running engine right
+    /// away; also written back to the config file so it sticks across restarts.
+    func selectMidiDevice(_ name: String) {
+        midiDeviceSelection = name
+        lastError = nil
+
+        if running, !engine.setMIDIDevice(name) {
+            lastError = name.isEmpty
+                ? "No MIDI sources available."
+                : "No MIDI source matched “\(name)”."
+        }
+        refreshState()
+        persistMidiDeviceSelection(name)
+    }
+
+    /// Write just `midi_device` back to the config file, leaving the rest of
+    /// the user's config untouched. Silently skips if there's no config yet —
+    /// the live switch above already took effect either way.
+    private func persistMidiDeviceSelection(_ name: String) {
+        guard !configPath.isEmpty,
+              FileManager.default.fileExists(atPath: configPath) else { return }
+        do {
+            var cfg = try AppConfig.load(from: configPath)
+            guard cfg.midiDevice != name else { return }
+            cfg.midiDevice = name
+            try cfg.save(to: configPath)
+        } catch {
+            lastError = "Couldn't save MIDI device to config: \(error.localizedDescription)"
+        }
+    }
+
     /// Ask the user where to save a brand-new config file.
     private func promptSaveLocation() -> String? {
         let panel = NSSavePanel()
@@ -222,6 +268,10 @@ final class AppModel: NSObject, ObservableObject {
             )
         }
         canvasSize = NSSize(width: engine.canvasWidth, height: engine.canvasHeight)
+
+        // Seed the picker from the config the engine just loaded.
+        refreshMidiDevices()
+        midiDeviceSelection = (try? AppConfig.load(from: configURL.path))?.midiDevice ?? ""
     }
 
     func stop() {

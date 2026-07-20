@@ -144,6 +144,27 @@ bool MidiInput::start() {
         return false;
     }
 
+    // Stash CoreMIDI handles in the existing void*/int slots. Done before
+    // connecting because connectMatchingSourcesLocked() reads m_seqPort.
+    m_seqHandle = reinterpret_cast<void*>(static_cast<uintptr_t>(client));
+    m_seqPort   = static_cast<int>(port);
+
+    {
+        std::lock_guard<std::mutex> lock(m_deviceMutex);
+        connectMatchingSourcesLocked();
+    }
+
+    m_running = true;
+    return true;
+}
+
+int MidiInput::connectMatchingSourcesLocked() {
+    auto port = static_cast<MIDIPortRef>(m_seqPort);
+    if (!port) return 0;
+
+    m_deviceName.clear();
+    m_connectedSources.clear();
+
     ItemCount nSources = MIDIGetNumberOfSources();
     int connected = 0;
     for (ItemCount i = 0; i < nSources; ++i) {
@@ -161,6 +182,7 @@ bool MidiInput::start() {
         if (cerr == noErr) {
             std::cerr << "MidiInput: Connected to " << name << std::endl;
             if (m_deviceName.empty()) m_deviceName = name;
+            m_connectedSources.push_back(static_cast<uint32_t>(src));
             ++connected;
         } else {
             std::cerr << "MidiInput: Failed to connect to " << name
@@ -178,12 +200,25 @@ bool MidiInput::start() {
             m_deviceName = "(no MIDI sources)";
         }
     }
+    return connected;
+}
 
-    // Stash CoreMIDI handles in the existing void*/int slots
-    m_seqHandle = reinterpret_cast<void*>(static_cast<uintptr_t>(client));
-    m_seqPort   = static_cast<int>(port);
-    m_running   = true;
-    return true;
+bool MidiInput::switchDevice(const std::string& name) {
+    std::lock_guard<std::mutex> lock(m_deviceMutex);
+    m_preferredDevice = name;
+
+    // Not started yet: remember the choice, start() will apply it.
+    auto port = static_cast<MIDIPortRef>(m_seqPort);
+    if (!m_running.load() || !port) return false;
+
+    // Drop the old connections first so events stop arriving from a device the
+    // user just deselected.
+    for (uint32_t src : m_connectedSources) {
+        MIDIPortDisconnectSource(port, static_cast<MIDIEndpointRef>(src));
+    }
+    m_connectedSources.clear();
+
+    return connectMatchingSourcesLocked() > 0;
 }
 
 void MidiInput::stop() {
@@ -192,6 +227,11 @@ void MidiInput::stop() {
 
     auto port   = static_cast<MIDIPortRef>(m_seqPort);
     auto client = static_cast<MIDIClientRef>(reinterpret_cast<uintptr_t>(m_seqHandle));
+
+    {
+        std::lock_guard<std::mutex> lock(m_deviceMutex);
+        m_connectedSources.clear();
+    }
 
     if (port)   { MIDIPortDispose(port);   m_seqPort   = 0; }
     if (client) { MIDIClientDispose(client); m_seqHandle = nullptr; }
@@ -206,6 +246,7 @@ bool MidiInput::getNextEvent(MidiEvent& event) {
 }
 
 std::string MidiInput::getDeviceName() const {
+    std::lock_guard<std::mutex> lock(m_deviceMutex);
     return m_deviceName;
 }
 
