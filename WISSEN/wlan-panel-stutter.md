@@ -1,4 +1,34 @@
-# Panel stutter on full-WLAN — cause & fix
+ ◊# Panel stutter on full-WLAN — cause & fix
+
+> **RESOLVED 2026-07-23 — wiring the Mac alone is enough; the bigpanel does NOT need
+> LAN.** A 5-minute, 3-panel full-load test (all three FT panels on WLAN, Mac wired via
+> USB-C Ethernet, real content, ~20 Mbps on air) ran clean: bigpanel .21 avg 1115 pps,
+> ralfpanel .20 570 pps, ericpanel .22 569 pps, and **0 retry-discards on all three over
+> the whole run** — the retry-storm failure mode is absent. Only mild sub-second jitter
+> that averages out (bursty pps = delayed, not lost, packets), with no worsening over
+> time (no buffer saturation). So **Option 1 below is the shipping setup**; the
+> "target topology" of also wiring the 128×128 (Option 2) is unnecessary. Cheap
+> insurance for long shows: pin the AP to a clean 2.4 GHz channel (1/6/11) — bigpanel
+> has the weakest/most variable link (dipped to −61 dBm vs ralf −47 / eric −28…−36) while
+> carrying the heaviest load. See `panel-seal-checklist.md` for the per-panel hardening.
+>
+> **CAVEAT — this was tested in the HOME RF environment (clean air, channel 11 had only
+> our own AP).** On-site is a different and unknown 2.4 GHz world: foreign APs and, worst
+> of all, **a venue full of people = hundreds of phones saturating 2.4 GHz airtime** — the
+> same airtime exhaustion the retry storm caused, but from external interference the home
+> test can't reproduce. What transfers: the topology (wired Mac), panel hardening, static
+> IPs. What does NOT transfer: the channel choice and the airtime headroom — i.e. whether
+> WLAN alone still suffices on-site. Because the panels are Pi Zero 2 W (2.4 GHz only) and
+> the Mango is single-band, 2.4 GHz congestion is the structural risk. **Keep LAN as the
+> on-site fallback (don't discard the option), and re-run the on-site procedure below.**
+>
+> **On-site arrival procedure:** (1) scan with `sudo iw dev wlan0 scan | grep -E
+> "freq:|signal:|SSID:"` from a panel, rank 1/6/11 by strongest interferer, set the Mango
+> to the cleanest. (2) Re-run the 3-panel 5-min stress log under real conditions (crowd if
+> possible). (3) If retry-discards climb / dips deepen over time → escalate the fallback
+> ladder: pin channel → drop bigpanel to 20 fps (`max_fps`) → wire the 128×128 (Option 2)
+> → wire more panels. Nothing to buy in advance except keeping the LAN adapters on hand.
+
 
 ## Symptom
 With a **full-WLAN setup** (Mac on WiFi + all panels on WiFi), all panels stutter
