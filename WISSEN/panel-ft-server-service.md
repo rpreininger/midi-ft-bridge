@@ -21,7 +21,7 @@ After=network.target
 Type=simple
 ExecStart=/home/bigpanel/dev/flaschen-taschen/server/ft-server \
   -D 128x128 --led-cols=64 --led-rows=64 --led-chain=2 --led-parallel=2 \
-  --led-pwm-lsb-nanoseconds=50 --led-pwm-bits=7 --led-slowdown-gpio=2
+  --led-pwm-lsb-nanoseconds=50 --led-pwm-bits=11 --led-slowdown-gpio=2
 WorkingDirectory=/home/bigpanel/dev/flaschen-taschen/server
 Restart=on-failure
 RestartSec=5
@@ -43,11 +43,18 @@ SSH login user on the panel is `stratojets` (key-based access set up on the Mac)
 ## LED param notes (relevant to performance)
 - `--led-chain=2 --led-parallel=2` with `--led-cols=64 --led-rows=64` → four
   64×64 tiles = 128×128.
-- **`--led-pwm-bits=7`** (default is 11) → deliberately reduced colour depth to keep
-  refresh rate / CPU sane on the Pi Zero 2 W. This PWM bit-banging is the cost
-  driver behind the one render thread sitting near ~100% of one (isolated) core —
-  **not** the network. `--led-slowdown-gpio=2` is the standard Pi Zero 2 W GPIO
-  timing margin.
+- **`--led-pwm-bits=11`** (the default; raised from 7 on 2026-07-24). `pwm-bits` is the
+  PWM colour-depth resolution per channel; this bit-banging is the cost driver behind the
+  one render thread near ~100% of one (isolated) core — **not** the network, and purely
+  local (no effect on UDP frame rate / airtime). It was originally 7 to keep refresh high,
+  but a test showed **11 bits still holds ~134–192 Hz** (median 188) vs ~247 Hz at 7 —
+  both well above the ~100–120 Hz eye-flicker floor — and looks clearly better (less
+  banding). 11 also **matches B_ericpanel** (which runs the default 11), so all panels now
+  render the same colour depth. Revert backup on the panel:
+  `/etc/systemd/system/ft-server.service.bak-7bit`. **Camera caveat:** at 11 bits the
+  ~134 Hz floor can show scan-lines/banding *on camera* even though the eye can't see it;
+  if the show is filmed, `--led-pwm-bits=9` is the middle ground. `--led-slowdown-gpio=2`
+  is the standard Pi Zero 2 W GPIO timing margin.
 
 ## Handy commands (login as `stratojets@<panel-ip>`)
 ```sh

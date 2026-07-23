@@ -92,6 +92,35 @@ Air carries only **~9.8 Mbps** → comfortable on one 2.4 GHz radio. Stutter res
 4. **Reduce load** (band-aid, keeps Mango + wireless Mac): `default_fps` 25→15 (~20→12 Mbps),
    or throttle A_bigpanel via the existing per-panel `max_fps` lever (already used for the
    BLE panel at 10 fps). Degrades the show.
+5. **Pi 4 drives the bigpanel over 5 GHz** — the premium *wireless* hedge; see below.
+
+## Option: Pi 4 drives the bigpanel over 5 GHz (best wireless hedge for a hostile venue)
+Idea (raised 2026-07-24): replace the bigpanel's **Pi Zero 2 W with a spare Pi 4** (which
+has 5 GHz WiFi). The Pi 4 drives the 128×128 matrix directly (GPIO/HAT, runs ft-server) and
+receives its UDP stream over **5 GHz**; the two small panels stay on 2.4 GHz. This moves the
+**heaviest load (~9.8 Mbps) off the contested 2.4 GHz band entirely** — the band where a
+venue crowd's phones and foreign APs do the damage. Better than wiring the bigpanel (LAN)
+because it stays wireless *and* leaves 2.4 GHz to the two light panels only.
+
+Why it's attractive: heaviest panel off 2.4 GHz; Pi 4 has ample CPU (the 128×128 render that
+pegs ~100% of one Pi Zero core becomes trivial → headroom for higher refresh/pwm-bits);
+5 GHz has more channels and less crowd interference.
+
+The catches:
+- **Needs a 5 GHz path Mac↔Pi4.** The Mango is single-band 2.4 GHz — can't do 5 GHz. So this
+  requires a **dual-band router** (Mac wired, bigpanel/Pi4 on 5 GHz, small panels on 2.4 GHz),
+  e.g. GL.iNet Beryl/Slate, replacing the Mango. This is Option 3 above, realised.
+- **Setup + physical swap:** build flaschen-taschen on the Pi 4, move the HAT/matrix wiring,
+  harden it. Pi 4 usually needs **`--led-slowdown-gpio=3–4`** (faster SoC → more GPIO timing
+  margin than the Zero's `=2`), a beefier PSU, more heat/space.
+- **5 GHz range** is shorter and penetrates bodies/obstacles worse than 2.4 GHz — fine with the
+  AP near the stage, but line-of-sight to the AP matters more.
+- **Pi 4 can only be a panel controller, not the hub** — the engine is the macOS app
+  (AVFoundation, UI); the Mac stays the sender. The Pi 4 just runs ft-server.
+
+When to reach for it: only if the venue's 2.4 GHz proves unusable **and** the bigpanel must
+stay wireless (no cable run possible). If a LAN cable to the bigpanel is feasible, Option 2
+(wire it) is simpler and RF-immune — prefer that first.
 
 ## Hygiene (do regardless — these compound under congestion)
 - `iw <dev> set power_save off` on all three panels (Pi Zero 2 W default is `power_save on`;
