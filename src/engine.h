@@ -47,7 +47,9 @@ public:
     bool isRunning() const { return m_running.load(); }
 
     // Trigger a clip by mapping index (0..mappings.size()-1).
-    void triggerMapping(int mappingIdx);
+    // Returns true if a clip actually started playing, false if the index is
+    // out of range or the clip file could not be opened.
+    bool triggerMapping(int mappingIdx);
 
     // Trigger a clip by MIDI note (looks up mapping; no-op if not mapped).
     void triggerNote(int note);
@@ -112,6 +114,12 @@ private:
     void workerLoop();
     void sendBlackToAll();
     void shutdownInternals();
+
+    // Start mapping `idx`; if its clip fails to open, advance through the
+    // following mappings (wrapping) until one plays. Returns false only if no
+    // mapping in the list is playable. Keeps auto-play from stalling forever on
+    // a missing/empty clip (e.g. an empty "clip" entry in the config).
+    bool startPlayableFrom(int idx);
 
     static void extractRegion(const uint8_t* src, int srcWidth,
                               int sx, int sy, int sw, int sh,

@@ -228,8 +228,8 @@ void Engine::sendBlackToAll() {
     }
 }
 
-void Engine::triggerMapping(int mappingIdx) {
-    if (mappingIdx < 0 || mappingIdx >= static_cast<int>(m_config.mappings.size())) return;
+bool Engine::triggerMapping(int mappingIdx) {
+    if (mappingIdx < 0 || mappingIdx >= static_cast<int>(m_config.mappings.size())) return false;
     // Remember where we are so auto-play continues from the last clip played,
     // whether it was triggered manually, by MIDI, or by the auto-advance.
     m_autoPlayIndex.store(mappingIdx);
@@ -249,11 +249,25 @@ void Engine::triggerMapping(int mappingIdx) {
         m_activeClipName = mapping.clip;
         m_activeClip = std::move(player);
         std::cerr << "Engine: playing " << mapping.clip << std::endl;
-    } else {
-        std::cerr << "Engine: FAILED to open " << clipPath << " (cwd=";
-        char cwd[1024]; if (getcwd(cwd, sizeof(cwd))) std::cerr << cwd; else std::cerr << "?";
-        std::cerr << ")" << std::endl;
+        return true;
     }
+    std::cerr << "Engine: FAILED to open " << clipPath << " (cwd=";
+    char cwd[1024]; if (getcwd(cwd, sizeof(cwd))) std::cerr << cwd; else std::cerr << "?";
+    std::cerr << ")" << std::endl;
+    return false;
+}
+
+// Start mapping `idx`; on failure, walk forward through the list (wrapping)
+// until a clip opens. Prevents auto-play from stalling on a missing/empty clip.
+bool Engine::startPlayableFrom(int idx) {
+    int n = static_cast<int>(m_config.mappings.size());
+    if (n == 0) return false;
+    for (int step = 0; step < n; ++step) {
+        int cand = ((idx + step) % n + n) % n;   // normalise into [0, n)
+        if (triggerMapping(cand)) return true;
+        std::cerr << "Engine: skipping unplayable mapping " << cand << std::endl;
+    }
+    return false;
 }
 
 void Engine::triggerNote(int note) {
@@ -332,7 +346,10 @@ void Engine::setAutoPlay(bool on) {
     if (idle) {
         int start = m_autoPlayIndex.load();
         start = (start < 0) ? 0 : (start % static_cast<int>(m_config.mappings.size()));
-        triggerMapping(start);
+        if (!startPlayableFrom(start)) {
+            std::cerr << "Engine: no playable clip to start auto-play" << std::endl;
+            m_autoPlay.store(false);
+        }
     }
 }
 
@@ -464,11 +481,15 @@ void Engine::workerLoop() {
             }
             std::cerr << "Engine: clip finished: " << finishedName << std::endl;
 
-            // Test/auto-play mode: advance to the next mapping and loop forever.
+            // Test/auto-play mode: advance to the next mapping and loop forever,
+            // skipping any clip that fails to open (missing/empty entry) so one
+            // bad clip can't end the loop. Only stops if NONE are playable.
             if (m_autoPlay.load() && !m_config.mappings.empty()) {
-                int next = (m_autoPlayIndex.load() + 1) %
-                           static_cast<int>(m_config.mappings.size());
-                triggerMapping(next);
+                if (!startPlayableFrom(m_autoPlayIndex.load() + 1)) {
+                    std::cerr << "Engine: no playable clip in auto-play; stopping" << std::endl;
+                    m_autoPlay.store(false);
+                    sendBlackToAll();
+                }
             } else {
                 sendBlackToAll();
             }
