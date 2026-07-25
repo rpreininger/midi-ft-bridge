@@ -130,9 +130,50 @@ lifetime to the `devicectl` process, so the app dies when it is killed:
     xcrun devicectl device process launch --device <udid> --console \
       --terminate-existing de.welt.midiftbridge.ios
 
-## Open question — is an iPad the right master?
+## Next: hardware tests (pending, 2026-07-26)
 
-Wiring the Mac in is what fixed the 2.4 GHz airtime stutter (see
-`wlan-panel-stutter.md`). An iPad puts the master back on WLAN. A USB-C
-ethernet dongle works, but the same port is carrying Fantom MIDI/audio, so it
-means a powered hub. Worth settling before investing in the UI port.
+Target topology — **phone wired, panels on WLAN**, i.e. the phone takes the
+Mac's place in the gig plan (`gig-network-plan`), Cudy keeps static leases and
+bigpanel on 5 GHz, and `config.json` needs no change:
+
+    iPhone 15 Pro --USB-C--> powered mini-dock (PD in)
+                               |-- Ethernet --> Cudy LAN --> panels
+                               '-- USB-B ------> Roland Fantom (MIDI + USB audio)
+
+The Fantom is self-powered, so only the Ethernet PHY draws bus power. Settings
+→ Ethernet allows a manual IP, so the phone can sit statically on
+192.168.10.x. Both devices are class-compliant, no drivers needed.
+
+**The open unknown is whether iOS drives Ethernet + MIDI simultaneously through
+a hub.** iPadOS handles multi-class USB well; iPhone uses the same stack but is
+much less exercised here. Do not buy a dock before step 3.
+
+Run cheapest-first:
+
+1. **Fantom → phone directly** (USB-C to USB-B, no dock). Confirms CoreMIDI
+   enumerates the Fantom itself, not just a network session. Watch for a
+   `MidiInput: Connected to ...` line naming the Fantom.
+2. **Ethernet dongle alone**, static 192.168.10.x, Wi-Fi off. Confirms frames
+   actually reach the panels and clears the local-network gate — still
+   unverified, and not answerable from the Mac (see above).
+3. **Both together through the dock.** Only after 1 and 2 pass.
+
+Steps 1 and 2 are worth doing regardless of whether the dock idea proceeds.
+
+## Rejected: iPhone as the access point
+
+Personal Hotspot *does* hand out DHCP leases (phone at `172.20.10.1`, clients
+in `172.20.10.0/28`), so panels would associate and get IPs. It fails for other
+reasons:
+
+- **No static reservations.** iOS gives no control over subnet, pool, or which
+  client gets which address, so the hardcoded panel IPs in `config.json` break.
+- **Forces 2.4 GHz.** Pi Zero 2 W is 2.4 GHz-only, so "Maximize Compatibility"
+  must be on, which drops the whole hotspot to 2.4 GHz — straight back into the
+  airtime contention in `wlan-panel-stutter.md`, and now with the video source
+  and the AP sharing one radio.
+- Hotspot generally wants an active cellular plan and power-manages
+  aggressively; it is not LAN infrastructure.
+
+Strictly worse than the Cudy plan. If the phone is the master, it should be a
+Cudy *client* or wired.
