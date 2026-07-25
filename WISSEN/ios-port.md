@@ -160,20 +160,33 @@ Run cheapest-first:
 
 Steps 1 and 2 are worth doing regardless of whether the dock idea proceeds.
 
-## Rejected: iPhone as the access point
+## iPhone as the access point — conditionally viable
 
-Personal Hotspot *does* hand out DHCP leases (phone at `172.20.10.1`, clients
-in `172.20.10.0/28`), so panels would associate and get IPs. It fails for other
-reasons:
+Initially rejected because Pi Zero 2 W is 2.4 GHz-only, forcing "Maximize
+Compatibility" and dragging the whole hotspot to 2.4 GHz — back into
+`wlan-panel-stutter.md`. **Ralf's counter (2026-07-25): put an OTG 5 GHz
+adapter on _all three_ panels, not just bigpanel.** That removes the band
+constraint entirely and allows dropping the router:
 
-- **No static reservations.** iOS gives no control over subnet, pool, or which
-  client gets which address, so the hardcoded panel IPs in `config.json` break.
-- **Forces 2.4 GHz.** Pi Zero 2 W is 2.4 GHz-only, so "Maximize Compatibility"
-  must be on, which drops the whole hotspot to 2.4 GHz — straight back into the
-  airtime contention in `wlan-panel-stutter.md`, and now with the video source
-  and the AP sharing one radio.
-- Hotspot generally wants an active cellular plan and power-manages
-  aggressively; it is not LAN infrastructure.
+    iPhone = AP (5 GHz) + USB MIDI (Fantom) + BLE panel
+    3x Pi Zero panel, each on an OTG 5 GHz adapter
 
-Strictly worse than the Cudy plan. If the phone is the master, it should be a
-Cudy *client* or wired.
+Personal Hotspot does run DHCP (phone `172.20.10.1`, clients `172.20.10.0/28`),
+so panels associate and get IPs. What still has to be settled:
+
+- **Addressing.** iOS gives no control over subnet or pool, so the hardcoded
+  panel IPs in `config.json` cannot be reserved. Workaround: static-IP the
+  panels high in the range (e.g. `.11/.12/.13`) and hope the pool, which fills
+  from `.2`, never reaches them. Only 14 usable addresses and no way to exclude
+  any — hacky, but with 3 clients it has room.
+- **Cellular.** Personal Hotspot generally wants an active cellular plan; needs
+  testing whether it comes up as a pure local AP with no signal at the venue.
+- **Sustained load + thermal.** iPhone doing AP duty + 25 fps decode + BLE for
+  a full set is untested. Hotspot is a known heat source; watch for throttling.
+- Losing the router also loses the wired break-glass path.
+
+**Sequencing matters here.** The OTG 5 GHz upgrade is worth doing *regardless*
+of which AP wins — those adapters work just as well against the Cudy, which
+keeps static leases and has no cellular dependency. So buy and prove the OTG
+adapters first, and treat "drop the router" as a separate, later decision. That
+way the risky part is not on the critical path.
