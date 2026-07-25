@@ -12,6 +12,10 @@
 #include <iostream>
 #include <chrono>
 
+#ifdef __APPLE__
+#include <TargetConditionals.h>   // TARGET_OS_IPHONE, used by the shutdown route
+#endif
+
 StatusServer::StatusServer(int port) : m_port(port) {}
 
 StatusServer::~StatusServer() {
@@ -121,7 +125,17 @@ void StatusServer::handleClient(int clientSocket) {
         std::string result;
         if (m_shutdownPanelsCallback) {
             result = m_shutdownPanelsCallback();
-        } else if (m_config) {
+        }
+#if TARGET_OS_IPHONE
+        // No fallback on iOS: system() is unavailable to sandboxed apps and
+        // there is no ssh binary. The engine's callback is wired in practice,
+        // and it reports the same limitation.
+        else {
+            result = "shutdown unavailable on iOS (no ssh; app sandbox "
+                     "forbids spawning processes)\n";
+        }
+#else
+        else if (m_config) {
             for (const auto& panel : m_config->panels) {
                 if (panel.type == "ft" && panel.ip != "127.0.0.1") {
                     // Block (no trailing '&') so the exit code reflects ssh, and
@@ -136,6 +150,7 @@ void StatusServer::handleClient(int clientSocket) {
                 }
             }
         }
+#endif  // TARGET_OS_IPHONE
         response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nShutdown result:\n" + result;
     }
     else if (request.find("GET /api/test?note=") != std::string::npos) {

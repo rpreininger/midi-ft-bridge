@@ -1,16 +1,74 @@
 // ====================================================================
-//  Audio Output Device Selection - CoreAudio implementation (macOS)
+//  Audio Output Device Selection - Apple implementations
+//
+//  macOS uses the CoreAudio HAL; iOS uses AVAudioSession. They differ in
+//  kind, not just in API: on macOS the app picks the output device, on
+//  iOS the system does. See the iOS section for the consequences.
 // ====================================================================
 
-#import <CoreAudio/CoreAudio.h>
-#import <CoreFoundation/CoreFoundation.h>
+#include <TargetConditionals.h>
 
 #include "audio_output_macos.h"
 
-#include <mutex>
-#include <vector>
 #include <algorithm>
 #include <cctype>
+#include <iostream>
+#include <mutex>
+#include <vector>
+
+namespace {
+
+struct DevInfo { std::string uid; std::string name; bool isDefault = false; };
+
+std::string jsonEscape(const std::string& s) {
+    std::string o;
+    o.reserve(s.size() + 8);
+    for (char c : s) {
+        switch (c) {
+            case '"':  o += "\\\""; break;
+            case '\\': o += "\\\\"; break;
+            case '\n': o += "\\n";  break;
+            case '\r': o += "\\r";  break;
+            case '\t': o += "\\t";  break;
+            default:   o += c;      break;
+        }
+    }
+    return o;
+}
+
+std::string toLower(std::string s) {
+    std::transform(s.begin(), s.end(), s.begin(),
+                   [](unsigned char c){ return static_cast<char>(std::tolower(c)); });
+    return s;
+}
+
+// Shared by both platforms: the JSON shape the web UI and the app's picker
+// consume. Which devices land in `devs` is what differs.
+std::string buildDevicesJSON(const std::vector<DevInfo>& devs,
+                             const std::string& selUID,
+                             const std::string& selName) {
+    std::string json = "{\"selected\":\"" + jsonEscape(selUID) +
+                       "\",\"selectedName\":\"" + jsonEscape(selName) +
+                       "\",\"devices\":[";
+    for (size_t i = 0; i < devs.size(); ++i) {
+        if (i) json += ",";
+        json += "{\"uid\":\"" + jsonEscape(devs[i].uid) +
+                "\",\"name\":\"" + jsonEscape(devs[i].name) +
+                "\",\"default\":" + (devs[i].isDefault ? "true" : "false") + "}";
+    }
+    json += "]}";
+    return json;
+}
+
+}  // namespace
+
+// ====================================================================
+#if TARGET_OS_OSX
+// ====================================================================
+//  macOS - CoreAudio HAL. Real enumeration, real selection.
+
+#import <CoreAudio/CoreAudio.h>
+#import <CoreFoundation/CoreFoundation.h>
 
 namespace {
 
@@ -86,8 +144,6 @@ AudioDeviceID defaultOutputDevice() {
     return dev;
 }
 
-struct DevInfo { std::string uid; std::string name; bool isDefault = false; };
-
 std::vector<DevInfo> enumerateOutputs() {
     std::vector<DevInfo> out;
     AudioObjectPropertyAddress addr = {
@@ -115,28 +171,6 @@ std::vector<DevInfo> enumerateOutputs() {
     return out;
 }
 
-std::string jsonEscape(const std::string& s) {
-    std::string o;
-    o.reserve(s.size() + 8);
-    for (char c : s) {
-        switch (c) {
-            case '"':  o += "\\\""; break;
-            case '\\': o += "\\\\"; break;
-            case '\n': o += "\\n";  break;
-            case '\r': o += "\\r";  break;
-            case '\t': o += "\\t";  break;
-            default:   o += c;      break;
-        }
-    }
-    return o;
-}
-
-std::string toLower(std::string s) {
-    std::transform(s.begin(), s.end(), s.begin(),
-                   [](unsigned char c){ return static_cast<char>(std::tolower(c)); });
-    return s;
-}
-
 }  // namespace
 
 namespace macaudio {
@@ -149,25 +183,13 @@ std::vector<std::string> outputDeviceNames() {
 
 std::string devicesJSON() {
     std::vector<DevInfo> devs = enumerateOutputs();
-
     std::string selUID, selName;
     {
         std::lock_guard<std::mutex> lk(g_mtx);
         selUID  = g_selectedUID;
         selName = g_selectedName;
     }
-
-    std::string json = "{\"selected\":\"" + jsonEscape(selUID) +
-                       "\",\"selectedName\":\"" + jsonEscape(selName) +
-                       "\",\"devices\":[";
-    for (size_t i = 0; i < devs.size(); ++i) {
-        if (i) json += ",";
-        json += "{\"uid\":\"" + jsonEscape(devs[i].uid) +
-                "\",\"name\":\"" + jsonEscape(devs[i].name) +
-                "\",\"default\":" + (devs[i].isDefault ? "true" : "false") + "}";
-    }
-    json += "]}";
-    return json;
+    return buildDevicesJSON(devs, selUID, selName);
 }
 
 std::string selectByUID(const std::string& uid) {
@@ -209,4 +231,128 @@ std::string getSelectedName() {
     return g_selectedName;
 }
 
+// An AudioQueue on macOS renders without any session setup.
+void prepareForPlayback() {}
+
 }  // namespace macaudio
+
+// ====================================================================
+#else   // TARGET_OS_IPHONE (and simulator)
+// ====================================================================
+//  iOS - AVAudioSession.
+//
+//  There is no device picker on iOS. The system resolves the output route
+//  by priority (USB / BT / headphones / speaker) and the app only gets to
+//  observe it. So this implementation reports the *current route* through
+//  the same surface, and treats selection as advisory:
+//
+//    * getSelectedUID() always returns "" - the clip player must not try
+//      to pin an AudioQueue to a device (that property is macOS-only).
+//    * getSelectedName() is the live route, not a stored preference.
+//    * selectByNameSubstring() only confirms a match; it cannot force one.
+//
+//  Practical effect for this app: attach the Fantom (or any USB audio
+//  interface) and it *becomes* the route on its own. What is lost is
+//  choosing between several attached outputs, and the config's
+//  "audio_output" key is therefore a check, not a command.
+
+#import <AVFoundation/AVFoundation.h>
+
+namespace {
+
+std::string nsToStd(NSString* s) {
+    return s ? std::string(s.UTF8String) : std::string();
+}
+
+// The outputs of the route the system is currently using. Empty until the
+// session has been activated at least once (see prepareForPlayback).
+std::vector<DevInfo> currentRouteOutputs() {
+    std::vector<DevInfo> out;
+    @autoreleasepool {
+        AVAudioSession* session = [AVAudioSession sharedInstance];
+        for (AVAudioSessionPortDescription* port in session.currentRoute.outputs) {
+            DevInfo d;
+            d.uid  = nsToStd(port.UID);
+            d.name = nsToStd(port.portName);
+            d.isDefault = true;           // the system picked it, so it is in use
+            if (!d.uid.empty()) out.push_back(std::move(d));
+        }
+    }
+    return out;
+}
+
+std::string currentRouteName() {
+    std::vector<DevInfo> devs = currentRouteOutputs();
+    if (devs.empty()) return "System Default";
+    // Multi-output routes are rare; name them all rather than pick one.
+    std::string name = devs[0].name;
+    for (size_t i = 1; i < devs.size(); ++i) name += " + " + devs[i].name;
+    return name;
+}
+
+}  // namespace
+
+namespace macaudio {
+
+std::vector<std::string> outputDeviceNames() {
+    std::vector<std::string> names;
+    for (const auto& d : currentRouteOutputs()) names.push_back(d.name);
+    return names;
+}
+
+std::string devicesJSON() {
+    // "selected" stays empty: on iOS nothing is selectable, so the UI should
+    // render this as a status line rather than a picker.
+    return buildDevicesJSON(currentRouteOutputs(), "", currentRouteName());
+}
+
+std::string selectByUID(const std::string& /*uid*/) {
+    // Nothing to select. Report what is actually playing so callers that
+    // echo the return value stay truthful.
+    return currentRouteName();
+}
+
+std::string selectByNameSubstring(const std::string& nameSubstr) {
+    if (nameSubstr.empty()) return {};
+    std::string needle = toLower(nameSubstr);
+    for (const auto& d : currentRouteOutputs()) {
+        if (toLower(d.name).find(needle) != std::string::npos) return d.name;
+    }
+    return {};   // caller logs "not found"; on iOS that means "cannot force"
+}
+
+std::string getSelectedUID() {
+    return {};   // never pin an AudioQueue to a device on iOS
+}
+
+std::string getSelectedName() {
+    return currentRouteName();
+}
+
+void prepareForPlayback() {
+    static std::once_flag once;
+    std::call_once(once, []{
+        @autoreleasepool {
+            AVAudioSession* session = [AVAudioSession sharedInstance];
+            NSError* err = nil;
+            // Playback category: keeps audio alive when the screen locks and
+            // ignores the ring/silent switch - both required for a live set.
+            if (![session setCategory:AVAudioSessionCategoryPlayback
+                                 mode:AVAudioSessionModeDefault
+                              options:0
+                                error:&err]) {
+                std::cerr << "AudioOutput(iOS): setCategory failed: "
+                          << nsToStd(err.localizedDescription) << std::endl;
+            }
+            err = nil;
+            if (![session setActive:YES error:&err]) {
+                std::cerr << "AudioOutput(iOS): setActive failed: "
+                          << nsToStd(err.localizedDescription) << std::endl;
+            }
+        }
+    });
+}
+
+}  // namespace macaudio
+
+#endif  // TARGET_OS_OSX

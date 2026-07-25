@@ -1,0 +1,128 @@
+name: MidiFtBridgeIOS
+
+# iOS port spike. Compiles the same src/ engine and the same Obj-C
+# EngineBridge as the Mac app - only the UI layer and two platform
+# shims differ. Nothing here is copied from mac-app; both targets
+# reference the shared sources in place.
+
+options:
+  bundleIdPrefix: de.welt
+  deploymentTarget:
+    iOS: "16.0"
+  developmentLanguage: en
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+    GCC_C_LANGUAGE_STANDARD: c11
+    CLANG_CXX_LANGUAGE_STANDARD: "c++17"
+    CLANG_CXX_LIBRARY: "libc++"
+    PRODUCT_NAME: "MIDI-FT Bridge"
+    PRODUCT_BUNDLE_IDENTIFIER: "de.welt.midiftbridge.ios"
+    SWIFT_OBJC_BRIDGING_HEADER: "MidiFtBridgeIOS/MidiFtBridgeIOS-Bridging-Header.h"
+    INFOPLIST_FILE: "MidiFtBridgeIOS/Info.plist"
+    # Same flag the Mac app uses. It means "native Apple AV stack, no
+    # FFmpeg/SDL2" rather than anything macOS-specific - the name predates
+    # the iOS target. Platform differences inside the engine are switched
+    # on TARGET_OS_IPHONE, not on this.
+    GCC_PREPROCESSOR_DEFINITIONS:
+      - "MFB_NATIVE_MACOS=1"
+      - "$(inherited)"
+    HEADER_SEARCH_PATHS:
+      - "$(SRCROOT)/../src"
+      - "$(SRCROOT)/../mac-app/MidiFtBridge"
+      - "$(SRCROOT)/MidiFtBridgeIOS"
+    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: PRM2DDW7M5
+    CODE_SIGN_IDENTITY: "Apple Development"
+    # Simulator builds need no signing at all; only device builds do.
+    CODE_SIGNING_ALLOWED[sdk=iphonesimulator*]: "NO"
+    CODE_SIGNING_REQUIRED[sdk=iphonesimulator*]: "NO"
+
+targets:
+  MidiFtBridgeIOS:
+    type: application
+    platform: iOS
+    sources:
+      - path: MidiFtBridgeIOS
+      # Shared C++/Obj-C engine, identical file list to the Mac target.
+      - path: ../src
+        name: Engine
+        type: group
+        includes:
+          - "engine.cpp"
+          - "engine.h"
+          - "clip_player_macos.mm"
+          - "clip_player.h"
+          - "ft_sender.cpp"
+          - "ft_sender.h"
+          - "lodepng.cpp"
+          - "lodepng.h"
+          - "status_server.cpp"
+          - "status_server.h"
+          - "midi_input.h"
+          - "midi_input_macos.cpp"
+          - "audio_player.h"
+          - "audio_player_macos_native.cpp"
+          - "audio_output_macos.h"
+          - "audio_output_macos.mm"
+          - "ble_sender.h"
+          - "ble_sender_macos.mm"
+          - "config.h"
+      # Shared Obj-C facade - Foundation only, no AppKit, so it ports as-is.
+      - path: ../mac-app/MidiFtBridge
+        name: Bridge
+        type: group
+        includes:
+          - "EngineBridge.h"
+          - "EngineBridge.mm"
+    dependencies:
+      - sdk: AVFoundation.framework
+      - sdk: CoreMedia.framework
+      - sdk: CoreVideo.framework
+      - sdk: CoreMIDI.framework
+      - sdk: CoreFoundation.framework
+      - sdk: AudioToolbox.framework
+      - sdk: CoreBluetooth.framework
+      - sdk: UIKit.framework
+    info:
+      path: MidiFtBridgeIOS/Info.plist
+      properties:
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+          - UIInterfaceOrientationPortrait
+        NSBluetoothAlwaysUsageDescription: "Send video frames to iPixel BLE LED panels."
+        # Unicast UDP to 192.168.10.x trips the iOS 14+ local-network gate.
+        # Without the grant the panels simply never receive frames - there is
+        # no error, so the app has to surface the permission state itself.
+        NSLocalNetworkUsageDescription: "Send video frames to the LED panels on your local network."
+        # Keeps the engine running when the screen locks mid-set. Legitimate
+        # here because the app really is playing clip audio.
+        UIBackgroundModes:
+          - audio
+        # Clips are far too large to bundle (~9 GB), so config.json and the
+        # clips folder are dropped into the app's Documents directory over
+        # Finder / the Files app.
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+
+schemes:
+  MidiFtBridgeIOS:
+    build:
+      targets:
+        MidiFtBridgeIOS: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release

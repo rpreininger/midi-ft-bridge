@@ -1,5 +1,13 @@
 // ====================================================================
-//  Audio Output Device Selection - CoreAudio (macOS native)
+//  Audio Output Device Selection - Apple platforms
+//
+//  Two implementations behind one pure-C++ surface (see the .mm):
+//    * macOS - CoreAudio HAL: real enumeration + selection of output
+//      devices, applied per AudioQueue.
+//    * iOS   - AVAudioSession: the system owns routing, so the same
+//      surface reports the *current route* and selection is advisory.
+//      See the iOS section of audio_output_macos.mm for what that
+//      costs you.
 //
 //  The native macOS clip player decodes + plays audio through an
 //  AudioQueue (see clip_player_macos.mm). By default an AudioQueue
@@ -52,5 +60,13 @@ std::string getSelectedUID();
 
 // Human-readable name of the selected device ("System Default" if none).
 std::string getSelectedName();
+
+// Called by the clip player before it creates an AudioQueue.
+//   macOS - no-op (an AudioQueue renders without any session setup).
+//   iOS   - puts the AVAudioSession into the Playback category and
+//           activates it. Without this an AudioQueue on iOS is silent,
+//           and the app cannot keep playing once backgrounded.
+// Safe to call repeatedly; the work happens once.
+void prepareForPlayback();
 
 }  // namespace macaudio

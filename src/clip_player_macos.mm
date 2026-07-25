@@ -18,6 +18,8 @@
 //  plain CLI process.
 // ====================================================================
 
+#include <TargetConditionals.h>
+
 #import <AVFoundation/AVFoundation.h>
 #import <CoreMedia/CoreMedia.h>
 #import <CoreVideo/CoreVideo.h>
@@ -253,10 +255,18 @@ bool ClipPlayer::Impl::setupPipeline(double startSec, bool startPaused) {
         fmt.mBytesPerFrame = OUT_CH * sizeof(float);
         fmt.mFramesPerPacket = 1;
         fmt.mBytesPerPacket = fmt.mBytesPerFrame;
+        // iOS: an AudioQueue is silent until the AVAudioSession is active.
+        // macOS: no-op.
+        macaudio::prepareForPlayback();
+
         if (AudioQueueNewOutput(&fmt, Impl::aqRender, this, nullptr, nullptr, 0, &aq) == noErr) {
+#if TARGET_OS_OSX
             // Route to the user-selected CoreAudio output device (empty = system
             // default). Selection is global (config default + live web-UI switch)
             // and read fresh per clip, so a switch takes effect on the next clip.
+            //
+            // iOS has no equivalent: kAudioQueueProperty_CurrentDevice is macOS-only
+            // and the system owns the route, so there is nothing to set there.
             std::string outUID = macaudio::getSelectedUID();
             if (!outUID.empty()) {
                 CFStringRef cfUID = CFStringCreateWithCString(nullptr, outUID.c_str(),
@@ -269,6 +279,7 @@ bool ClipPlayer::Impl::setupPipeline(double startSec, bool startPaused) {
                 }
                 if (cfUID) CFRelease(cfUID);
             }
+#endif
             // Give the decoder a moment to prime the ring, then fill + enqueue.
             for (int i = 0; i < 50; ++i) {
                 { std::lock_guard<std::mutex> lk(pcmMtx); if (pcmAvail >= (size_t)AQ_BUF_FRAMES * OUT_CH) break; }

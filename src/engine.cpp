@@ -11,6 +11,10 @@
 #include <unistd.h>
 #include <sys/wait.h>
 
+#ifdef __APPLE__
+#include <TargetConditionals.h>   // TARGET_OS_IPHONE, used by sshShutdown below
+#endif
+
 #ifdef MFB_NATIVE_MACOS
 #include "audio_output_macos.h"
 #endif
@@ -28,6 +32,20 @@ bool isShutdownable(const PanelConfig& p) {
 // The remote shutdown is backgrounded ('... &') so ssh returns 0 as soon as the
 // command is accepted, rather than exit 255 when the box drops the connection.
 // ssh's own stderr (auth / network errors) is captured for the status line.
+//
+// iOS has neither piece of this: a sandboxed app may not spawn processes, and
+// there is no ssh binary to spawn. Shutting panels down from an iOS build would
+// need an in-app SSH client (a third-party dependency this project has so far
+// avoided) or a small HTTP endpoint on the panels themselves. Until one of those
+// exists the button reports honestly instead of silently doing nothing.
+#if TARGET_OS_IPHONE
+std::string sshShutdown(const PanelConfig& p) {
+    std::string line = p.name + " (" + p.ip + "): unavailable on iOS "
+                       "(no ssh; app sandbox forbids spawning processes)";
+    std::cerr << "Shutdown " << line << std::endl;
+    return line + "\n";
+}
+#else
 std::string sshShutdown(const PanelConfig& p) {
     std::string cmd = "ssh -o ConnectTimeout=3 -o BatchMode=yes "
                       "-o StrictHostKeyChecking=no root@" + p.ip +
@@ -53,6 +71,7 @@ std::string sshShutdown(const PanelConfig& p) {
     std::cerr << "Shutdown " << line << std::endl;
     return line + "\n";
 }
+#endif  // TARGET_OS_IPHONE
 }  // namespace
 
 Engine::Engine() = default;
