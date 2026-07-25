@@ -143,6 +143,12 @@ private:
     std::unique_ptr<ClipPlayer> m_activeClip;
     std::string m_activeClipName;
 
+    // Worker-owned copy of the current canvas. getCurrentFrame() hands back a
+    // pointer into the ClipPlayer's own buffer, which triggerMapping() is free
+    // to destroy the moment m_clipMutex is released - so the worker copies the
+    // frame out under the lock and works from the copy afterwards.
+    std::vector<uint8_t> m_canvasBuffer;
+
     // --- Per-panel scratch / throttle state (worker-only) ---
     std::vector<std::vector<uint8_t>> m_regionBuffers;
     std::vector<std::chrono::steady_clock::time_point> m_lastPanelSend;

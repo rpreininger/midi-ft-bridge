@@ -432,8 +432,18 @@ void Engine::workerLoop() {
         {
             std::lock_guard<std::mutex> lock(m_clipMutex);
             if (m_activeClip) {
-                frame = m_activeClip->getCurrentFrame();
-                if (!frame && m_activeClip->isFinished()) {
+                const uint8_t* live = m_activeClip->getCurrentFrame();
+                if (live) {
+                    // Copy before releasing the lock. `live` points into the
+                    // ClipPlayer's buffer; a concurrent triggerMapping() would
+                    // destroy that player and leave us reading freed memory
+                    // (SIGSEGV on iOS, silent corruption on macOS).
+                    const size_t bytes =
+                        (size_t)m_config.video_width * m_config.video_height * 3;
+                    if (m_canvasBuffer.size() != bytes) m_canvasBuffer.resize(bytes);
+                    std::memcpy(m_canvasBuffer.data(), live, bytes);
+                    frame = m_canvasBuffer.data();
+                } else if (m_activeClip->isFinished()) {
                     clipFinished = true;
                 }
             }
