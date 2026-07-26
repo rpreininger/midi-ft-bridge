@@ -179,8 +179,12 @@ so panels associate and get IPs. What still has to be settled:
   panels high in the range (e.g. `.11/.12/.13`) and hope the pool, which fills
   from `.2`, never reaches them. Only 14 usable addresses and no way to exclude
   any — hacky, but with 3 clients it has room.
-- **Cellular.** Personal Hotspot generally wants an active cellular plan; needs
-  testing whether it comes up as a pure local AP with no signal at the venue.
+- **Cellular — CONFIRMED BLOCKER (2026-07-26).** Personal Hotspot is gated on
+  an active cellular plan. With no SIM/eSIM the Personal Hotspot section is not
+  even present in Settings. Verified on the spare iPhone SE 2, which therefore
+  cannot be the AP at all. Whichever phone acts as AP needs a live plan, adding
+  a carrier dependency (and possible tethering restrictions) to the show
+  network — a failure mode the Cudy does not have.
 - **Sustained load + thermal.** iPhone doing AP duty + 25 fps decode + BLE for
   a full set is untested. Hotspot is a known heat source; watch for throttling.
 - Losing the router also loses the wired break-glass path.
@@ -190,3 +194,7 @@ of which AP wins — those adapters work just as well against the Cudy, which
 keeps static leases and has no cellular dependency. So buy and prove the OTG
 adapters first, and treat "drop the router" as a separate, later decision. That
 way the risky part is not on the critical path.
+
+**Current lean (2026-07-26):** keep the Cudy. The cellular gating above turns
+"drop the router" into "add a carrier to the show network", which is a worse
+trade than the box it removes. Do the OTG 5 GHz adapters anyway.
