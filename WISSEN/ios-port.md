@@ -125,10 +125,30 @@ Pushing files to a real device (the app's Documents container):
       --source clips/mp4 --destination Documents/clips/mp4
 
 Launching with the console attached — note that `--console` ties the app's
-lifetime to the `devicectl` process, so the app dies when it is killed:
+lifetime to the `devicectl` process, so the app dies when it is killed. Drop
+`--console` to launch detached. Either way the device must be **unlocked**:
 
     xcrun devicectl device process launch --device <udid> --console \
       --terminate-existing de.welt.midiftbridge.ios
+
+### Onboarding a new device (cost us ~20 min on the SE)
+
+In this order, or the build fails with a confusing error each time:
+
+1. **Pair:** `xcrun devicectl manage pair --device <uuid>` — then tap Trust on
+   the (unlocked) device.
+2. **Developer Mode:** Settings → Privacy & Security → Developer Mode → on.
+   Reboots, then confirm again after unlocking. The toggle only appears after
+   the Mac has attempted a connection.
+3. **Register with the team:** the build needs BOTH
+   `-allowProvisioningUpdates` *and* `-allowProvisioningDeviceRegistration`.
+   With only the first it fails with "Device ... isn't registered in your
+   developer account".
+
+`xcodebuild -destination` wants the **hardware UDID** (`00008030-0004...`), not
+the CoreDevice UUID that `devicectl list devices` prints — `devicectl` wants
+the latter. Get the hardware UDID from `xcodebuild -showdestinations`. If two
+phones share a name, rename one (Settings → General → About → Name).
 
 ## Device roles (decided 2026-07-26)
 
