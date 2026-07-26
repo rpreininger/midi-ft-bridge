@@ -130,6 +130,20 @@ lifetime to the `devicectl` process, so the app dies when it is killed:
     xcrun devicectl device process launch --device <udid> --console \
       --terminate-existing de.welt.midiftbridge.ios
 
+## Device roles (decided 2026-07-26)
+
+- **iPhone 15 Pro = master / show.** USB-C, single powered dock carrying
+  Ethernet + Fantom, wired to the router, Wi-Fi off. This is the rig that has
+  to be reliable, and what the tests below are for.
+- **iPhone SE 2 = rehearsal.** Lightning, so no USB-C dock. Rehearsal does not
+  need the wired path: Fantom via a Lightning camera adapter, panels over
+  Wi-Fi. No hub required (only one USB device), and probably no powered adapter
+  either since the Fantom is self-powered — try an A1440 before buying an
+  A1619. Cannot be the AP (no SIM, see below).
+
+  Note the Mango is single-band 2.4 GHz, so an SE on Wi-Fi sits in the
+  congestion until the Cudy is in service; then it joins on 5 GHz.
+
 ## Next: hardware tests (pending, 2026-07-26)
 
 Target topology — **phone wired, panels on WLAN**, i.e. the phone takes the
