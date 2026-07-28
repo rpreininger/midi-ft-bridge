@@ -12,7 +12,17 @@
 #include <sys/wait.h>
 
 #ifdef __APPLE__
-#include <TargetConditionals.h>   // TARGET_OS_IPHONE, used by sshShutdown below
+#include <TargetConditionals.h>   // TARGET_OS_IPHONE, selects the shutdown path
+#endif
+
+#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
+// iOS shuts panels down over HTTP (no ssh in the sandbox); needs sockets.
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <fcntl.h>
+#include <errno.h>
+#include <sys/select.h>
 #endif
 
 #ifdef MFB_NATIVE_MACOS
@@ -25,28 +35,84 @@ bool isShutdownable(const PanelConfig& p) {
     return p.type == "ft" && !p.ip.empty() && p.ip != "127.0.0.1";
 }
 
-// SSH shutdown; returns a one-line "name (ip): <result>".
+// Shut one panel down; returns a one-line "name (ip): <result>".
+//
+// macOS shells out to ssh (below). iOS cannot -- a sandboxed app may not spawn
+// processes and there is no ssh binary -- so it POSTs... GETs a small HTTP
+// endpoint each panel runs (setup/panel-shutdown-service.sh), which does the
+// `sudo shutdown now` locally. `port`/`token` come from config; macOS ignores
+// them.
+#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
+
+// Minimal blocking HTTP/1.0 GET. Returns the HTTP status code, or -1 on any
+// connect/IO error. Bounded by timeoutMs on both connect and recv so one dead
+// panel can't stall the shutdown-all loop.
+int httpGetStatus(const std::string& ip, int port, const std::string& path, int timeoutMs) {
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) return -1;
+
+    struct sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(static_cast<uint16_t>(port));
+    if (inet_pton(AF_INET, ip.c_str(), &addr.sin_addr) != 1) { close(fd); return -1; }
+
+    // Non-blocking connect with a select() timeout.
+    int flags = fcntl(fd, F_GETFL, 0);
+    fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+    int rc = connect(fd, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr));
+    if (rc < 0 && errno == EINPROGRESS) {
+        fd_set wf; FD_ZERO(&wf); FD_SET(fd, &wf);
+        struct timeval tv{ timeoutMs / 1000, (timeoutMs % 1000) * 1000 };
+        if (select(fd + 1, nullptr, &wf, nullptr, &tv) <= 0) { close(fd); return -1; }
+        int err = 0; socklen_t el = sizeof(err);
+        getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &el);
+        if (err != 0) { close(fd); return -1; }
+    } else if (rc < 0) { close(fd); return -1; }
+
+    // Back to blocking with send/recv timeouts.
+    fcntl(fd, F_SETFL, flags);
+    struct timeval rtv{ timeoutMs / 1000, (timeoutMs % 1000) * 1000 };
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &rtv, sizeof(rtv));
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &rtv, sizeof(rtv));
+
+    std::string req = "GET " + path + " HTTP/1.0\r\nHost: " + ip +
+                      "\r\nConnection: close\r\n\r\n";
+    if (send(fd, req.data(), req.size(), 0) < 0) { close(fd); return -1; }
+
+    std::string resp; char buf[512]; ssize_t n;
+    while ((n = recv(fd, buf, sizeof(buf), 0)) > 0) resp.append(buf, static_cast<size_t>(n));
+    close(fd);
+    if (resp.empty()) return -1;
+
+    // Parse the status code out of "HTTP/1.x NNN ...".
+    size_t sp = resp.find(' ');
+    return (sp == std::string::npos) ? -1 : atoi(resp.c_str() + sp + 1);
+}
+
+std::string panelShutdown(const PanelConfig& p, int port, const std::string& token) {
+    std::string result;
+    if (token.empty()) {
+        result = "FAILED — no shutdown_token in config";
+    } else {
+        int code = httpGetStatus(p.ip, port, "/shutdown?token=" + token, 3000);
+        result = (code == 200) ? "shutdown sent"
+               : (code == 403) ? "FAILED — token rejected"
+               : (code <  0)   ? "FAILED — no response (endpoint down?)"
+                               : ("FAILED — HTTP " + std::to_string(code));
+    }
+    std::string line = p.name + " (" + p.ip + "): " + result;
+    std::cerr << "Shutdown " << line << std::endl;
+    return line + "\n";
+}
+
+#else  // macOS / Linux: ssh.
+
 // Blocking (so we can report the real outcome) but bounded:
 //   - ConnectTimeout=3  -> give up quickly on an unreachable panel
 //   - BatchMode=yes     -> fail fast instead of hanging on a password prompt
 // The remote shutdown is backgrounded ('... &') so ssh returns 0 as soon as the
 // command is accepted, rather than exit 255 when the box drops the connection.
-// ssh's own stderr (auth / network errors) is captured for the status line.
-//
-// iOS has neither piece of this: a sandboxed app may not spawn processes, and
-// there is no ssh binary to spawn. Shutting panels down from an iOS build would
-// need an in-app SSH client (a third-party dependency this project has so far
-// avoided) or a small HTTP endpoint on the panels themselves. Until one of those
-// exists the button reports honestly instead of silently doing nothing.
-#if TARGET_OS_IPHONE
-std::string sshShutdown(const PanelConfig& p) {
-    std::string line = p.name + " (" + p.ip + "): unavailable on iOS "
-                       "(no ssh; app sandbox forbids spawning processes)";
-    std::cerr << "Shutdown " << line << std::endl;
-    return line + "\n";
-}
-#else
-std::string sshShutdown(const PanelConfig& p) {
+std::string panelShutdown(const PanelConfig& p, int /*port*/, const std::string& /*token*/) {
     std::string cmd = "ssh -o ConnectTimeout=3 -o BatchMode=yes "
                       "-o StrictHostKeyChecking=no root@" + p.ip +
                       " 'sudo shutdown now >/dev/null 2>&1 &' 2>&1";
@@ -404,7 +470,8 @@ std::vector<PanelStatus> Engine::getPanelStatus() const {
 std::string Engine::shutdownPanels() {
     std::string result;
     for (const auto& panel : m_config.panels) {
-        if (isShutdownable(panel)) result += sshShutdown(panel);
+        if (isShutdownable(panel))
+            result += panelShutdown(panel, m_config.shutdown_port, m_config.shutdown_token);
     }
     return result;
 }
@@ -412,7 +479,8 @@ std::string Engine::shutdownPanels() {
 std::string Engine::shutdownPanel(const std::string& name) {
     for (const auto& panel : m_config.panels) {
         if (panel.name == name) {
-            if (isShutdownable(panel)) return sshShutdown(panel);
+            if (isShutdownable(panel))
+                return panelShutdown(panel, m_config.shutdown_port, m_config.shutdown_token);
             return name + ": not shutdownable (not an FT panel)\n";
         }
     }

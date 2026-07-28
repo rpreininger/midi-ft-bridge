@@ -192,12 +192,14 @@
     return out;
 }
 
-- (void)shutdownPanels {
-    if (_engine) _engine->shutdownPanels();
+- (NSString *)shutdownPanels {
+    if (!_engine) return @"engine not running";
+    return [NSString stringWithUTF8String:_engine->shutdownPanels().c_str()];
 }
 
-- (void)shutdownPanelNamed:(NSString *)name {
-    if (_engine) _engine->shutdownPanel(std::string([name UTF8String]));
+- (NSString *)shutdownPanelNamed:(NSString *)name {
+    if (!_engine) return @"engine not running";
+    return [NSString stringWithUTF8String:_engine->shutdownPanel(std::string([name UTF8String])).c_str()];
 }
 
 @end

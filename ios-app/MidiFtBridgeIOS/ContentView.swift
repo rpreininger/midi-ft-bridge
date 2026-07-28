@@ -8,6 +8,7 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject var model: IOSAppModel
+    @State private var confirmShutdown = false
 
     var body: some View {
         NavigationStack {
@@ -22,12 +23,34 @@ struct ContentView: View {
             .navigationTitle("MIDI-FT Bridge")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(role: .destructive) {
+                        confirmShutdown = true
+                    } label: {
+                        Image(systemName: "power")
+                    }
+                    .tint(.orange)
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(model.running ? "Stop" : "Start") {
                         model.running ? model.stop() : model.start()
                     }
                     .tint(model.running ? .red : .accentColor)
                 }
+            }
+            .confirmationDialog("Shut down all panels?",
+                                isPresented: $confirmShutdown, titleVisibility: .visible) {
+                Button("Shut down panels", role: .destructive) { model.shutdownPanels() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Powers off every FT panel. They must be switched back on by hand.")
+            }
+            .alert("Panel shutdown",
+                   isPresented: Binding(get: { model.shutdownResult != nil },
+                                        set: { if !$0 { model.shutdownResult = nil } })) {
+                Button("OK") { model.shutdownResult = nil }
+            } message: {
+                Text(model.shutdownResult ?? "")
             }
         }
         .onAppear {

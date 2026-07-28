@@ -85,11 +85,12 @@ NS_ASSUME_NONNULL_BEGIN
 /// Empty when the engine is not running.
 - (NSArray<NSDictionary<NSString *, id> *> *)panelStatus;
 
-/// SSH `sudo shutdown now` to all FT panels. No-op for ble/loopback panels.
-- (void)shutdownPanels;
+/// Shut down all FT panels; returns a per-panel result summary. macOS uses ssh,
+/// iOS uses the panels' HTTP shutdown endpoint. No-op for ble/loopback panels.
+- (NSString *)shutdownPanels;
 
-/// SSH `sudo shutdown now` to the named FT panel.
-- (void)shutdownPanelNamed:(NSString *)name;
+/// Shut down the named FT panel; returns a one-line result.
+- (NSString *)shutdownPanelNamed:(NSString *)name;
 
 @end
 

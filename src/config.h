@@ -39,6 +39,13 @@ struct Config {
     int video_width = 256;
     int video_height = 128;
     int web_port = 8080;
+    // Panel shutdown over HTTP (the iOS path — a sandboxed app cannot spawn
+    // ssh). Each panel runs a small endpoint (setup/panel-shutdown-service.sh):
+    //   GET http://<panel>:<shutdown_port>/shutdown?token=<shutdown_token>
+    // Empty token = feature disabled on iOS. macOS still uses ssh and ignores
+    // both fields.
+    int shutdown_port = 8081;
+    std::string shutdown_token;
     int midi_channel = -1;  // MIDI channel filter (0-15, -1 = any). Channel 10 = 9 (0-indexed)
     std::string midi_device;  // Preferred MIDI input device (display-name substring, case-
                               // insensitive). Empty = connect to all available sources.
@@ -131,6 +138,8 @@ struct Config {
         video_width = extractInt(json, "video_width", 256);
         video_height = extractInt(json, "video_height", 128);
         web_port = extractInt(json, "web_port", 8080);
+        shutdown_port = extractInt(json, "shutdown_port", 8081);
+        shutdown_token = extractString(json, "shutdown_token");
         midi_channel = extractInt(json, "midi_channel", -1);
         midi_device = extractString(json, "midi_device");
         audio_device = extractString(json, "audio_device");

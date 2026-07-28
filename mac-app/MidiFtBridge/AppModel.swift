@@ -302,10 +302,10 @@ final class AppModel: NSObject, ObservableObject {
     func previousClip()         { engine.skipToPreviousClip() }
 
     /// SSH `sudo shutdown now` to all FT panels.
-    func shutdownAllPanels() { engine.shutdownPanels() }
+    func shutdownAllPanels() { _ = engine.shutdownPanels() }
 
     /// SSH `sudo shutdown now` to a single FT panel by name.
-    func shutdownPanel(_ name: String) { engine.shutdownPanelNamed(name) }
+    func shutdownPanel(_ name: String) { _ = engine.shutdownPanelNamed(name) }
 
     /// Move selection one row down (snaps to first row if nothing selected).
     func selectNext() {

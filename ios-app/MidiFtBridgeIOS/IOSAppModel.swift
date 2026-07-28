@@ -38,6 +38,7 @@ final class IOSAppModel: NSObject, ObservableObject {
     @Published var mappings: [MappingInfo] = []
     @Published var panels: [PanelInfo] = []
     @Published var status = "Idle"
+    @Published var shutdownResult: String?
 
     private let engine = MFBEngine()
 
@@ -105,6 +106,16 @@ final class IOSAppModel: NSObject, ObservableObject {
     func trigger(index: Int) { engine.triggerMapping(at: index) }
     func stopClip()          { engine.stopActiveClip() }
     func togglePause()       { engine.togglePause() }
+
+    /// Shut down all FT panels via their HTTP endpoints. Each request blocks up
+    /// to 3s, so run it off the main thread and report the per-panel summary.
+    func shutdownPanels() {
+        shutdownResult = "Shutting down panels…"
+        DispatchQueue.global(qos: .userInitiated).async { [engine] in
+            let summary = engine.shutdownPanels()
+            DispatchQueue.main.async { self.shutdownResult = summary }
+        }
+    }
 
     func refreshState() {
         running    = engine.running
