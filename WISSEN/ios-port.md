@@ -107,6 +107,37 @@ is possible — relevant to the gig-network question below. Caveats: Ethernet
 *plus* Fantom USB needs a powered hub, chipset support is broad but not
 universal, and Wi-Fi is best turned off rather than trusting route priority.
 
+## Alternative rig: master on 5 GHz Wi-Fi, Cudy band-bridges (2026-07-28)
+
+The Cudy is dual-band = two independent radios, so it can **receive the whole
+stream on 5 GHz and fan it out to the panels on 2.4 GHz at the same time** —
+the two flows are on different bands and don't share airtime. This "splits the
+frequencies".
+
+Where the stream's *uplink* lives is the whole point:
+
+| Master link | 2.4 GHz carries the stream… |
+|---|---|
+| 2.4 GHz Wi-Fi client | **twice** (up + down) — bad |
+| **5 GHz Wi-Fi client** | once (down only) — good |
+| Wired Ethernet | once (down only) — good |
+
+So **5 GHz-client ties wired** on 2.4 GHz airtime — both keep the heavy uplink
+off the contested band. Consequence: the iPhone master could just **join the
+Cudy on 5 GHz Wi-Fi and skip the Ethernet dongle entirely.** The dock then only
+needs **Fantom MIDI + audio + power** (no Ethernet), which also drops the
+"iOS drives Ethernet through a hub" unknown.
+
+**Not the OTG failure.** This is the iPhone's real 802.11ac/ax radio, not the
+cheap USB-2 OTG stick that segmented bigpanel's video — ~20 Mbit/s is trivial
+for it.
+
+**Trade-off:** it doesn't beat wired, it ties it. Wired stays the most
+deterministic (immune to a crowded venue 5 GHz); the 5 GHz uplink carries the
+whole show on one wireless link, so a congested venue band could degrade it.
+Plan: test the 5 GHz-client uplink at a real venue; if solid it's the cleaner
+rig, with the Ethernet dongle kept as break-glass for bad-RF rooms.
+
 ## Setup on device/simulator
 
 Clips are ~9 GB, far too large to bundle. `config.json` and `clips/` go into
