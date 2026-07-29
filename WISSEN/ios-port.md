@@ -138,6 +138,31 @@ whole show on one wireless link, so a congested venue band could degrade it.
 Plan: test the 5 GHz-client uplink at a real venue; if solid it's the cleaner
 rig, with the Ethernet dongle kept as break-glass for bad-RF rooms.
 
+### Measured: panel-side 5 GHz is dead (2026-07-29)
+
+Confirmed the OTG failure with numbers, not eyeballing. A faithful FT-burst
+load (43 packets every 40 ms = bigpanel's 128×128 tile-mode at 25 fps,
+~9.9 Mbit/s, 1075 pps) blasted to bigpanel, loss counted by sequence number:
+
+| Band | Loss (two runs) |
+|---|---|
+| **2.4 GHz** built-in wlan0 | **0.00%** (0 / 16125), 0 driver drops |
+| **5 GHz** Edimax AC600 (rtw_8821cu) via passive OTG | **3.76%, then 16.91%** |
+
+Strong signal (−42 dBm), power_save off — so it's neither RF nor powersave, it's
+the USB-2 adapter choking on the burst. The old "segmented video" was real
+4–17% packet loss. **Panel-side 5 GHz via this adapter is not viable.**
+
+Conclusion this reinforces: **keep the panels on their built-in 2.4 GHz (0%
+loss); move the _master_ to 5 GHz (or wired) to cut contention, never the
+panels.** A better panel adapter (MT7612U-class) is the only path if panel-side
+5 GHz is ever genuinely needed. (Load-test scripts: `ftload_send.py` /
+`ftload_recv.py`, kept in the session scratchpad.)
+
+Field note: bigpanel's Edimax fell off the USB bus during handling — the Pi Zero
+has ONE OTG data port (it was sharing with a Logitech dongle via swaps), and the
+adapter does NOT hotplug reliably; reseat + reboot.
+
 ## Setup on device/simulator
 
 Clips are ~9 GB, far too large to bundle. `config.json` and `clips/` go into
