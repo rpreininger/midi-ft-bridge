@@ -107,9 +107,32 @@ every reboot without a hardware RTC (DS3231). Not worth it for the show.
 Protects the SD card against corruption from yank-the-power shutdowns (the #1 killer
 of Pi installs). Root FS becomes read-only + RAM overlay; writes are discarded on
 reboot. RAM is ample (panel uses ~150 MB of 416 MB).
+
+**All three panels sealed 2026-07-30 (.20/.21/.22).** The one-liner below does NOT
+work on the isolated show network — `do_overlayfs` runs `apt-get install overlayroot`
+(pulls `cryptsetup` + `cryptsetup-bin`), which needs internet, and its initramfs
+rebuild fails because `/boot/firmware` is mounted `ro` (fstab: `defaults,ro`). What
+actually worked (Bookworm, `/boot/firmware` layout, mechanism is `overlayroot=tmpfs`
+in cmdline — NOT `boot=overlay`):
+
 ```sh
-sudo raspi-config nonint do_overlayfs 0    # enable; then reboot
-# to make a change later: do_overlayfs 1 -> reboot -> edit -> do_overlayfs 0 -> reboot
+# 0. one-time internet: plug the Cudy's WAN into a router with internet (a few min).
+#    On .22 the resolver was stale -> `echo nameserver 8.8.8.8 > /etc/resolv.conf`.
+# 1. per panel, as root:
+mount -o remount,rw /boot/firmware          # else the initramfs write fails, ro fstab
+apt-get install -y overlayroot              # pulls cryptsetup; needs the internet
+grep -q overlayroot=tmpfs /boot/firmware/cmdline.txt \
+  || sed -i 's/^/overlayroot=tmpfs /' /boot/firmware/cmdline.txt
+update-initramfs -u                         # bakes in the overlayroot init hook
+reboot
+# 2. verify: `findmnt -no FSTYPE /` must print `overlay`.
 ```
-After sealing, journald logs no longer persist across reboots — finish any log-based
-debugging first.
+Gotchas hit: an SSH blip mid-`apt` left dpkg half-configured on .20 → fix with
+`dpkg --configure -a && apt-get -f install -y` (remount /boot rw first). Adding the
+cmdline flag WITHOUT the package installed is inert — it just boots ext4 as normal
+(safe, but not sealed). After install the package persists, so future re-seals need
+no internet.
+
+To make a change later: `do_overlayfs 1` (or remove `overlayroot=tmpfs` from cmdline)
+→ reboot → edit → re-add flag → reboot. After sealing, journald logs no longer persist
+across reboots — finish any log-based debugging first.
