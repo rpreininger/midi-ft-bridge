@@ -28,6 +28,11 @@ switch on `TARGET_OS_IPHONE`.
 
 ## The bug the iPhone found (fixed)
 
+> Not the last one. Three more surfaced at the 2026-08-06 rehearsal — a second
+> clip-switch SIGSEGV one layer down (inside AVFoundation), a watchdog kill via
+> the BLE sender, and a ~200 MB/min preview leak. See
+> **`ios-crash-postmortem.md`**, which also documents the on-device log.
+
 Running on device segfaulted (signal 11) after a few rapid clip switches. It is
 **not an iOS bug** — it is a use-after-free that has always been in the engine:
 

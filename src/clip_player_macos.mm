@@ -118,6 +118,14 @@ struct ClipPlayer::Impl {
     std::atomic<bool> running{false};
     std::atomic<bool> active{false};
 
+    // Serialises AVAssetReader access. cancelReading() from teardownPipeline()
+    // must never overlap a copyNextSampleBuffer() still in flight on a decode
+    // thread: that tears down the remote MediaToolbox reader mid-extract and
+    // faults inside CFDictionaryGetValue (the SIGSEGVs of 2026-07-25/08-05,
+    // always on a clip switch). Held only across the copy call itself, never
+    // across the ring/PCM waits, so teardown blocks for one decode at most.
+    std::mutex readerMtx;
+
     // ---- audio ring helpers ----
     size_t pcmPull(float* dst, size_t frames) {
         std::unique_lock<std::mutex> lk(pcmMtx);
@@ -163,39 +171,57 @@ struct ClipPlayer::Impl {
 
 void ClipPlayer::Impl::videoLoop() {
     while (running.load()) {
-        CMSampleBufferRef sb = [vOut copyNextSampleBuffer];
-        if (!sb) { videoEOF.store(true); ringNotEmpty.notify_one(); break; }
-        double pts = CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sb));
-        CVImageBufferRef img = CMSampleBufferGetImageBuffer(sb);
-        if (img) {
-            std::unique_lock<std::mutex> lk(ringMtx);
-            ringNotFull.wait(lk, [&]{ return !running.load() || (wrCount - rdCount) < FRAME_RING; });
-            if (!running.load()) { CFRelease(sb); break; }
-            int slot = wr % FRAME_RING;
-            if ((int)ring[slot].rgb.size() != outW * outH * 3) ring[slot].rgb.resize(outW * outH * 3);
-            convertBGRAtoRGB24(img, ring[slot].rgb.data(), outW, outH);
-            ring[slot].pts = pts;
-            wr = (wr + 1) % FRAME_RING;
-            wrCount++;
-            lk.unlock();
-            ringNotEmpty.notify_one();
+        // One pool per frame. AVFoundation/CoreMedia autorelease internally and
+        // a std::thread has no pool of its own, so without this every decoded
+        // frame's temporaries live until the thread exits — measured on device
+        // as ~3.3 MB/s of unbounded growth while a clip plays (2026-08-06).
+        @autoreleasepool {
+            CMSampleBufferRef sb = nullptr;
+            {
+                std::lock_guard<std::mutex> rl(readerMtx);
+                if (!running.load()) break;
+                sb = [vOut copyNextSampleBuffer];
+            }
+            if (!sb) { videoEOF.store(true); ringNotEmpty.notify_one(); break; }
+            double pts = CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sb));
+            CVImageBufferRef img = CMSampleBufferGetImageBuffer(sb);
+            if (img) {
+                std::unique_lock<std::mutex> lk(ringMtx);
+                ringNotFull.wait(lk, [&]{ return !running.load() || (wrCount - rdCount) < FRAME_RING; });
+                if (!running.load()) { CFRelease(sb); break; }
+                int slot = wr % FRAME_RING;
+                if ((int)ring[slot].rgb.size() != outW * outH * 3) ring[slot].rgb.resize(outW * outH * 3);
+                convertBGRAtoRGB24(img, ring[slot].rgb.data(), outW, outH);
+                ring[slot].pts = pts;
+                wr = (wr + 1) % FRAME_RING;
+                wrCount++;
+                lk.unlock();
+                ringNotEmpty.notify_one();
+            }
+            CFRelease(sb);
         }
-        CFRelease(sb);
     }
 }
 
 void ClipPlayer::Impl::audioLoop() {
     while (running.load()) {
-        CMSampleBufferRef sb = [aOut copyNextSampleBuffer];
-        if (!sb) { audioEOF.store(true); break; }
-        CMBlockBufferRef bb = CMSampleBufferGetDataBuffer(sb);
-        if (bb) {
-            size_t len = 0; char* ptr = nullptr;
-            if (CMBlockBufferGetDataPointer(bb, 0, nullptr, &len, &ptr) == kCMBlockBufferNoErr && ptr && len) {
-                pcmPush((const float*)ptr, len / sizeof(float));
+        @autoreleasepool {                       // see videoLoop()
+            CMSampleBufferRef sb = nullptr;
+            {
+                std::lock_guard<std::mutex> rl(readerMtx);
+                if (!running.load()) break;
+                sb = [aOut copyNextSampleBuffer];
             }
+            if (!sb) { audioEOF.store(true); break; }
+            CMBlockBufferRef bb = CMSampleBufferGetDataBuffer(sb);
+            if (bb) {
+                size_t len = 0; char* ptr = nullptr;
+                if (CMBlockBufferGetDataPointer(bb, 0, nullptr, &len, &ptr) == kCMBlockBufferNoErr && ptr && len) {
+                    pcmPush((const float*)ptr, len / sizeof(float));
+                }
+            }
+            CFRelease(sb);
         }
-        CFRelease(sb);
     }
 }
 
@@ -306,8 +332,13 @@ bool ClipPlayer::Impl::setupPipeline(double startSec, bool startPaused) {
 
 void ClipPlayer::Impl::teardownPipeline() {
     running.store(false);
-    [vReader cancelReading];
-    [aReader cancelReading];
+    {
+        // Never cancel a reader while a decode thread is inside
+        // copyNextSampleBuffer — see readerMtx.
+        std::lock_guard<std::mutex> rl(readerMtx);
+        [vReader cancelReading];
+        [aReader cancelReading];
+    }
     ringNotFull.notify_all();
     ringNotEmpty.notify_all();
     pcmNotFull.notify_all();

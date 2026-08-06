@@ -36,6 +36,9 @@ struct ContentView: View {
                         model.running ? model.stop() : model.start()
                     }
                     .tint(model.running ? .red : .accentColor)
+                    // Engine start/stop now runs off the main thread; block
+                    // a second tap rather than queueing it behind the first.
+                    .disabled(model.busy)
                 }
             }
             .confirmationDialog("Shut down all panels?",
@@ -132,11 +135,37 @@ struct ContentView: View {
     }
 
     private var transport: some View {
-        HStack(spacing: 16) {
-            Button("Pause") { model.togglePause() }
-            Button("Stop clip") { model.stopClip() }
+        VStack(spacing: 8) {
+            HStack(spacing: 16) {
+                Button("Pause") { model.togglePause() }
+                Button("Stop clip") { model.stopClip() }
+                // Soak test: same endless auto-play the Mac app has. Left
+                // running for hours it exercises the clip-switch path, and
+                // the log records memory, stalls and every clip start.
+                Button(model.autoPlay ? "Stop Test Loop" : "Loop All (Test)") {
+                    model.toggleLoop()
+                }
+                .tint(model.autoPlay ? .red : .accentColor)
+            }
+            .buttonStyle(.bordered)
+            .disabled(!model.running)
+
+            HStack(spacing: 12) {
+                if !model.soakSummary.isEmpty {
+                    Text(model.soakSummary)
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                // The log lives in Documents (visible in the Files app), but
+                // at a venue AirDropping it to the Mac is far quicker.
+                if FileManager.default.fileExists(atPath: Diagnostics.logURL.path) {
+                    ShareLink(item: Diagnostics.logURL) {
+                        Label("Log", systemImage: "square.and.arrow.up")
+                            .font(.caption2)
+                    }
+                }
+            }
         }
-        .buttonStyle(.bordered)
-        .disabled(!model.running)
     }
 }

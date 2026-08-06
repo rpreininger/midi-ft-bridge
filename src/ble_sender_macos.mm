@@ -56,6 +56,12 @@ static uint32_t crc32(const uint8_t* data, size_t len) {
 @interface MFBIPixelClient : NSObject <CBCentralManagerDelegate, CBPeripheralDelegate>
 @property (atomic, assign) BOOL ready;     // characteristics resolved + notifications on
 @property (atomic, assign) BOOL debug;
+// Set by BleSender::stop() before it joins the worker. Every blocking wait
+// below polls it, so shutting the engine down never has to sit out a BLE
+// timeout. Before this, a missing panel meant the worker was parked in a
+// 15s connect wait and Engine::stop() blocked past the iOS 10s watchdog
+// (crash 0x8badf00d, 2026-08-04).
+@property (atomic, assign) BOOL cancelled;
 @end
 
 @implementation MFBIPixelClient {
@@ -109,9 +115,11 @@ static uint32_t crc32(const uint8_t* data, size_t len) {
         // Otherwise wait for centralManagerDidUpdateState: to fire when BT comes up.
     });
 
-    long rc = dispatch_semaphore_wait(_readySema,
-        dispatch_time(DISPATCH_TIME_NOW, (int64_t)(timeoutSec * NSEC_PER_SEC)));
-    if (rc != 0) {
+    if (![self waitSemaphore:_readySema timeout:timeoutSec]) {
+        if (self.cancelled) {
+            dispatch_async(self->_queue, ^{ [self stopScan]; });
+            return NO;
+        }
         std::cerr << "BleSender(macOS): connect timed out after "
                   << timeoutSec << "s" << std::endl;
         dispatch_async(self->_queue, ^{ [self stopScan]; });
@@ -119,6 +127,20 @@ static uint32_t crc32(const uint8_t* data, size_t len) {
     }
     self.ready = _readyResult;
     return _readyResult;
+}
+
+/// Wait on `sema` for up to `timeoutSec`, in slices, so a cancel is noticed
+/// within 50 ms instead of at the end of the timeout. Returns YES if signalled.
+- (BOOL)waitSemaphore:(dispatch_semaphore_t)sema timeout:(NSTimeInterval)timeoutSec {
+    const int64_t sliceNs = 50 * NSEC_PER_MSEC;
+    int64_t remaining = (int64_t)(timeoutSec * NSEC_PER_SEC);
+    while (remaining > 0) {
+        if (self.cancelled) return NO;
+        int64_t slice = remaining < sliceNs ? remaining : sliceNs;
+        if (dispatch_semaphore_wait(sema, dispatch_time(DISPATCH_TIME_NOW, slice)) == 0) return YES;
+        remaining -= slice;
+    }
+    return NO;
 }
 
 - (BOOL)writeBytes:(const void *)bytes length:(NSUInteger)len {
@@ -139,17 +161,13 @@ static uint32_t crc32(const uint8_t* data, size_t len) {
         }
     });
 
-    long rc = dispatch_semaphore_wait(_writeSema,
-        dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC));
-    return rc == 0 && _writeOk;
+    return [self waitSemaphore:_writeSema timeout:5.0] && _writeOk;
 }
 
 - (BOOL)waitForAckWithTimeout:(NSTimeInterval)timeoutSec {
     // Drain any stale ACK first — every wait should see only the next ACK.
     while (dispatch_semaphore_wait(_ackSema, DISPATCH_TIME_NOW) == 0) {}
-    long rc = dispatch_semaphore_wait(_ackSema,
-        dispatch_time(DISPATCH_TIME_NOW, (int64_t)(timeoutSec * NSEC_PER_SEC)));
-    return rc == 0;
+    return [self waitSemaphore:_ackSema timeout:timeoutSec];
 }
 
 - (void)disconnect {
@@ -408,6 +426,13 @@ void BleSender::sendBlack(int width, int height) {
 
 void BleSender::stop() {
     if (!m_running.exchange(false)) return;
+    // Cancel every in-flight BLE wait *before* joining. The BT panel is the
+    // least important output in the rig - if it is absent or unreachable it
+    // must never be able to hold up (or kill) the app.
+    if (m_dbus) {
+        MFBIPixelClient *client = (__bridge MFBIPixelClient *)m_dbus;
+        client.cancelled = YES;
+    }
     m_frameCv.notify_all();
     if (m_worker.joinable()) m_worker.join();
     dbusDisconnect();
@@ -432,7 +457,11 @@ void BleSender::workerThread() {
             BOOL ok = [client connectMatchingName:pattern timeout:15.0];
             if (!ok) {
                 if (!m_running) break;
-                std::this_thread::sleep_for(std::chrono::seconds(3));
+                // Interruptible backoff — a plain sleep_for made stop() wait
+                // out the retry on top of the connect timeout.
+                std::unique_lock<std::mutex> lock(m_frameMutex);
+                m_frameCv.wait_for(lock, std::chrono::seconds(3),
+                                   [this] { return !m_running.load(); });
                 continue;
             }
 

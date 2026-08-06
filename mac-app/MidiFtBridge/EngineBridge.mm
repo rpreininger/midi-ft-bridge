@@ -9,6 +9,7 @@
 #include "midi_input.h"
 #include "audio_output_macos.h"
 
+#include <atomic>
 #include <memory>
 #include <string>
 #include <vector>
@@ -57,27 +58,45 @@
 
     __weak MFBEngine *weakSelf = self;
 
+    // Backpressure for the preview. The engine produces 25 fps forever; the
+    // main queue consumes only as fast as it can draw, and drains not at all
+    // while the app is backgrounded on iOS. Without a gate every frame's
+    // 147 KB buffer queues up behind the last: measured on device as ~35 MB
+    // per 10 s of unbounded growth, ~1.6 GB after eight minutes (2026-08-06).
+    //
+    // One frame in flight at a time; anything produced while it is still
+    // undelivered is dropped. The preview is cosmetic - the panels get their
+    // frames from the worker either way.
+    auto framePending = std::make_shared<std::atomic<bool>>(false);
+
     // Frame callback runs on the engine worker thread. Convert RGB24 -> RGBA8
     // here (small canvases, cheap) and dispatch to the main queue for delivery.
-    _engine->setFrameCallback([weakSelf](const uint8_t *rgb, int w, int h) {
+    _engine->setFrameCallback([weakSelf, framePending](const uint8_t *rgb, int w, int h) {
         if (!rgb || w <= 0 || h <= 0) return;
-        const size_t pixelCount = (size_t)w * (size_t)h;
-        NSMutableData *rgba = [[NSMutableData alloc] initWithLength:pixelCount * 4];
-        uint8_t *out = (uint8_t *)rgba.mutableBytes;
-        for (size_t i = 0; i < pixelCount; ++i) {
-            out[i*4 + 0] = rgb[i*3 + 0];
-            out[i*4 + 1] = rgb[i*3 + 1];
-            out[i*4 + 2] = rgb[i*3 + 2];
-            out[i*4 + 3] = 0xFF;
-        }
-        dispatch_async(dispatch_get_main_queue(), ^{
-            MFBEngine *strong = weakSelf;
-            if (!strong) return;
-            id<MFBEngineDelegate> d = strong.delegate;
-            if ([d respondsToSelector:@selector(engine:didProduceRGBAFrame:width:height:)]) {
-                [d engine:strong didProduceRGBAFrame:rgba width:w height:h];
+        if (framePending->exchange(true)) return;   // previous frame not drawn yet
+
+        // The worker is a std::thread and has no autorelease pool of its own.
+        @autoreleasepool {
+            const size_t pixelCount = (size_t)w * (size_t)h;
+            NSMutableData *rgba = [[NSMutableData alloc] initWithLength:pixelCount * 4];
+            uint8_t *out = (uint8_t *)rgba.mutableBytes;
+            for (size_t i = 0; i < pixelCount; ++i) {
+                out[i*4 + 0] = rgb[i*3 + 0];
+                out[i*4 + 1] = rgb[i*3 + 1];
+                out[i*4 + 2] = rgb[i*3 + 2];
+                out[i*4 + 3] = 0xFF;
             }
-        });
+            dispatch_async(dispatch_get_main_queue(), ^{
+                MFBEngine *strong = weakSelf;
+                if (strong) {
+                    id<MFBEngineDelegate> d = strong.delegate;
+                    if ([d respondsToSelector:@selector(engine:didProduceRGBAFrame:width:height:)]) {
+                        [d engine:strong didProduceRGBAFrame:rgba width:w height:h];
+                    }
+                }
+                framePending->store(false);   // only now may the next frame queue
+            });
+        }
     });
 
     bool ok = _engine->start(std::string([configPath fileSystemRepresentation]),
