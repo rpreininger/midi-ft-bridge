@@ -202,7 +202,18 @@ Notes:
 - A Mac generally cannot see its own advertisements, so the sender has to be
   the **phone** (or a second Mac), not the same machine.
 - Expect ~2–5 fps: that is the iPixel's real throughput ceiling, and
-  `max_fps: 10` in `config.json` already caps it.
+  `max_fps: 10` in `config.json` already caps it. Measured against the
+  simulator on the SE: **2.4 fps, 418 ms per frame** for a ~1.4 KB PNG, all
+  CRCs clean. The engine drops the frames it cannot keep up with (25 fps in,
+  2.4 fps out) — that is what `dropped=` counts in the `BLE-DBG` lines, and it
+  is by design.
+- **The ACK must be exactly 5 bytes** with `0x05` first. The sender checks
+  `val.length == 5` before looking at the byte, so a shorter notification is
+  dropped without a word and every window then burns the full 3 s ACK timeout
+  — 3.5 s per frame, i.e. 0.3 fps. If the rate looks like that, check the ACK
+  length first. `debug: 1` in `config.json` makes the engine log
+  `BLE-DBG: frame N PNG=… send=…ms` and `ACK TIMEOUT`, which is what tells the
+  two apart.
 - A missing BT panel is no longer dangerous either way — it used to kill the
   app on Stop (bug 2 in the post-mortem); today it just logs
   `BleSender: connect timed out after 15s` every 18 s.

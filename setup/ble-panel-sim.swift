@@ -15,8 +15,9 @@
 //                     option 0x00 starts a frame, 0x02 continues it
 //                     windows are 12 KB, written in 244-byte chunks
 //    brightness     : 04 80 <value>
-//    ACK            : notification on fa03 whose first byte is 0x05,
-//                     one per window, sender waits up to 3 s
+//    ACK            : notification on fa03, exactly 5 bytes, first byte 0x05
+//                     (the sender drops any other length), one per window;
+//                     it waits up to 3 s before giving up on each
 //
 //  Usage:
 //      swift setup/ble-panel-sim.swift                    # name from config.json
@@ -36,6 +37,10 @@
 import CoreBluetooth
 import Foundation
 import ImageIO
+
+// Unbuffered: stdout is block-buffered when it is a pipe, so piping this to a
+// file or another process would show nothing until it exits.
+setvbuf(stdout, nil, _IONBF, 0)
 
 // fa02 = write (central -> panel), fa03 = notify (panel -> central).
 // Service UUID is not matched by the sender (it discovers all services and
@@ -137,10 +142,14 @@ final class FakePanel: NSObject, CBPeripheralManagerDelegate {
             let service = CBMutableService(type: SERVICE_UUID, primary: true)
             service.characteristics = [write, notifyChar]
             p.add(service)
-            p.startAdvertising([
-                CBAdvertisementDataLocalNameKey: advertisedName,
-                CBAdvertisementDataServiceUUIDsKey: [SERVICE_UUID],
-            ])
+            // Name ONLY — no service UUID. A BLE advertisement is 31 bytes; a
+            // 128-bit service UUID eats 18 of them and a 16-char local name
+            // another 18, so advertising both overflows and the name is
+            // truncated or dropped. The bridge matches on the *full* name
+            // (substring search for "LED_BLE_…"), so a truncated name means it
+            // never recognises us — and it does not filter on service UUID
+            // anyway, it discovers services after connecting.
+            p.startAdvertising([CBAdvertisementDataLocalNameKey: advertisedName])
             print("advertising as \"\(advertisedName)\" — waiting for the bridge…")
         case .poweredOff:
             print("Bluetooth is off")
@@ -151,6 +160,18 @@ final class FakePanel: NSObject, CBPeripheralManagerDelegate {
         default:
             break
         }
+    }
+
+    /// Advertising can fail silently otherwise — most often because the
+    /// payload does not fit in the 31-byte advertisement.
+    func peripheralManagerDidStartAdvertising(_ p: CBPeripheralManager, error: Error?) {
+        if let e = error { print("ADVERTISING FAILED: \(e.localizedDescription)") }
+        else { print("advertising is live") }
+    }
+
+    func peripheralManager(_ p: CBPeripheralManager,
+                           didAdd service: CBService, error: Error?) {
+        if let e = error { print("service registration failed: \(e.localizedDescription)") }
     }
 
     func peripheralManager(_ p: CBPeripheralManager,
@@ -248,9 +269,14 @@ final class FakePanel: NSObject, CBPeripheralManagerDelegate {
 
     private func sendAck() {
         guard subscribers > 0, notifyChar != nil else { return }
-        // The sender only inspects the first byte (0x05 = ACK).
-        if !manager.updateValue(Data([0x05]), for: notifyChar,
-                                onSubscribedCentrals: nil) {
+        // MUST be exactly 5 bytes. The sender ignores anything else outright:
+        //     if (val.length == 5) { if (b[0] == 0x05) signal(_ackSema); }
+        // A 1-byte 0x05 is silently dropped, and every window then waits out
+        // the full 3s ACK timeout (~3.5s per frame, measured).
+        // It reads like the same framing as everything else: uint16 LE length
+        // of 5, then three payload bytes it does not inspect.
+        if !manager.updateValue(Data([0x05, 0x00, 0x00, 0x00, 0x00]),
+                                for: notifyChar, onSubscribedCentrals: nil) {
             pending = true          // queue full — retried from the ready callback
         }
     }

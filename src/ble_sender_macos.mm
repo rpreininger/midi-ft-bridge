@@ -164,9 +164,18 @@ static uint32_t crc32(const uint8_t* data, size_t len) {
     return [self waitSemaphore:_writeSema timeout:5.0] && _writeOk;
 }
 
-- (BOOL)waitForAckWithTimeout:(NSTimeInterval)timeoutSec {
-    // Drain any stale ACK first — every wait should see only the next ACK.
+/// Discard ACKs left over from earlier windows. Call this *before* writing a
+/// window, never right before waiting for its ACK.
+- (void)drainStaleAcks {
     while (dispatch_semaphore_wait(_ackSema, DISPATCH_TIME_NOW) == 0) {}
+}
+
+- (BOOL)waitForAckWithTimeout:(NSTimeInterval)timeoutSec {
+    // No draining here. The ACK can arrive while the last chunks are still
+    // being written — a panel that answers quickly beats us to this call — and
+    // draining at this point threw that ACK away and then waited out the full
+    // 3s timeout. Every window cost 3 seconds: measured 0.3 fps against the
+    // simulator, which ACKs immediately.
     return [self waitSemaphore:_ackSema timeout:timeoutSec];
 }
 
@@ -561,6 +570,10 @@ bool BleSender::sendPng(const std::vector<uint8_t>& pngBytes) {
         fullWindow.push_back(length & 0xFF);
         fullWindow.push_back((length >> 8) & 0xFF);
         fullWindow.insert(fullWindow.end(), windowData.begin(), windowData.end());
+
+        // Clear any ACK from the previous window before this one goes out, so
+        // the wait below can only ever be satisfied by *this* window's ACK.
+        [client drainStaleAcks];
 
         // Write in CHUNK_SIZE chunks, each with response.
         for (size_t i = 0; i < fullWindow.size(); i += kChunkSize) {
