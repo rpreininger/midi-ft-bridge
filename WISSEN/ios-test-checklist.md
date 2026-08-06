@@ -176,16 +176,39 @@ loss. Use FT-Server to *see* the panels, that one to *measure* the link.
 answer for one address. `sim-panel-ips.sh` refuses to add an address that
 already answers, but it cannot stop a panel that boots later.
 
-### What the simulator does NOT cover
+### The BT panel — separate simulator
 
-- **The BT panel.** The iPixel speaks BLE GATT (chunked PNG + ACK
-  notifications), not UDP/PPM — nothing here stands in for it. It has to be a
-  real panel on the bench. Its absence is at least harmless now: a missing BT
-  panel used to kill the app on Stop (bug 2 in the post-mortem); today it just
-  logs `BleSender: connect timed out after 15s` every 18 s.
-  A fake iPixel is buildable — macOS can act as a GATT peripheral via
-  `CBPeripheralManager`, advertising the same name and the `fa02`/`fa03`
-  characteristics — but it does not exist yet.
+The iPixel speaks BLE GATT, not UDP/PPM, so the viewers above cannot stand in
+for it. `setup/ble-panel-sim.swift` does: it makes the Mac advertise *as* the
+panel — same local name (read from `config.json`), same `fa02`/`fa03`
+characteristics — reassembles the chunked PNG stream, checks the CRC32, ACKs
+each 12 KB window and draws the 32×16 result in the terminal.
+
+    swift setup/ble-panel-sim.swift              # picture + fps + CRC counters
+    swift setup/ble-panel-sim.swift --quiet      # counters only
+    swift setup/ble-panel-sim.swift --selftest   # verify the wire format, no hardware
+
+`--selftest` replays exactly what `BleSender::sendPng()` puts on the wire —
+12 KB windows split into 244-byte writes, the same 13-byte header — so the
+parser can be checked without a phone or a panel. Add `--render` to look at the
+decoded frame.
+
+Notes:
+
+- The **real BT panel must be off** while this runs, or the bridge connects to
+  whichever it finds first — it matches on the advertised name.
+- macOS asks *the terminal app* for Bluetooth permission the first time. If the
+  bridge never finds it: System Settings → Privacy & Security → Bluetooth.
+- A Mac generally cannot see its own advertisements, so the sender has to be
+  the **phone** (or a second Mac), not the same machine.
+- Expect ~2–5 fps: that is the iPixel's real throughput ceiling, and
+  `max_fps: 10` in `config.json` already caps it.
+- A missing BT panel is no longer dangerous either way — it used to kill the
+  app on Stop (bug 2 in the post-mortem); today it just logs
+  `BleSender: connect timed out after 15s` every 18 s.
+
+### What is still not covered
+
 - **Panel-side rendering.** The viewer shows what was *received*; it says
   nothing about ft-server, brightness, or the physical matrix.
 - **Real RF.** With the Mac wired to the router, the panels' own 2.4 GHz link
