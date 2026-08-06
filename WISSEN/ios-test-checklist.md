@@ -31,8 +31,26 @@ far we have only proved the engine *runs*, not that packets *arrive*.
 | Symptom | Where to look |
 |---|---|
 | Counters climb, panels dark | Panel side — power, IP, ft-server |
+| Counters climb, **nothing on the wire at all** | iOS demoted the Wi-Fi — see below |
 | Counters stuck at 0 | Settings → Privacy & Security → **Local Network** → MIDI-FT Bridge → on |
 | No Ethernet pane at all | Dongle not enumerating — try powered, or another dongle |
+
+**The frame counter is not proof of delivery.** `sendto()` on a non-blocking
+UDP socket succeeds whether or not the packet ever leaves the phone, so
+`framesSent` climbs at a full 25 fps into a void. Only the receiving end — a
+panel lighting up, or the simulator's `pkt/s` — proves anything.
+
+### Wi-Fi master: airplane mode is mandatory
+
+If the phone is on the AP over Wi-Fi rather than the dongle: **turn airplane
+mode ON, then Wi-Fi back on**, before the set.
+
+The show AP has no internet. iOS runs a connectivity probe a few seconds after
+joining, and when it fails the phone stays associated but stops using the
+interface — routing everything, including `192.168.10.x` unicast, to cellular.
+Measured 2026-08-06: the stream ran for ~8 seconds and stopped dead, while the
+app happily counted frames. With no cellular to escape to, iOS keeps using the
+AP. (The alternative is giving the AP a dummy WAN uplink so the probe passes.)
 
 The phone can just take DHCP; only the *panel* addresses need to be fixed,
 because those are what config.json targets.
@@ -127,10 +145,51 @@ at the same time.
 Do after 1–3, allow ~10 min.
 
 1. [ ] Rapid-tap ~20 clips in a row → **must not crash**
-       (verifies the use-after-free fix in `6e8b48b`)
+       (verifies the use-after-free fix in `6e8b48b` and the AVAssetReader
+       cancel race — see `ios-crash-postmortem.md`)
 2. [ ] Let one clip run — counters should climb smoothly, no stalls
 3. [ ] Lock the screen → audio should keep playing (background audio mode)
 4. [ ] Feel the phone after 10 min — watch for thermal throttling
+5. [ ] Tap **Loop All (Test)** and leave it — then read the log: `mem=` must
+       stay flat, and there must be no `MAIN THREAD STALLED` or `FATAL` lines
+
+## Bench rehearsal without panels — the simulator
+
+Runs a full set on the desk with no panels powered. The Mac takes over the
+panels' own addresses, so **nothing changes on the phone** — it streams to
+`192.168.10.20/.21/.22` exactly as at a gig.
+
+    setup/sim-panel-ips.sh en9 up      # once: alias the panel IPs onto the Mac
+    setup/run-panel-sims.sh            # one FT-Server viewer per panel
+    setup/sim-panel-ips.sh en9 down    # afterwards
+
+Geometry and addresses come from `config.json`; views land on
+`localhost:8081/8082/8083`. Each viewer prints `fps` and `pkt/s` once a second
+— at 25 fps expect **1075 pkt/s** for the 128×128 and **550** for each 128×64
+(43 and 22 three-row tiles). Anything below that is loss on the link.
+
+`setup/ft-panel-sim.py` is the headless alternative: all three panels in one
+terminal, and it counts **missing tiles per frame**, i.e. real on-the-wire
+loss. Use FT-Server to *see* the panels, that one to *measure* the link.
+
+**The real panels must be powered off** while the aliases are up, or two hosts
+answer for one address. `sim-panel-ips.sh` refuses to add an address that
+already answers, but it cannot stop a panel that boots later.
+
+### What the simulator does NOT cover
+
+- **The BT panel.** The iPixel speaks BLE GATT (chunked PNG + ACK
+  notifications), not UDP/PPM — nothing here stands in for it. It has to be a
+  real panel on the bench. Its absence is at least harmless now: a missing BT
+  panel used to kill the app on Stop (bug 2 in the post-mortem); today it just
+  logs `BleSender: connect timed out after 15s` every 18 s.
+  A fake iPixel is buildable — macOS can act as a GATT peripheral via
+  `CBPeripheralManager`, advertising the same name and the `fa02`/`fa03`
+  characteristics — but it does not exist yet.
+- **Panel-side rendering.** The viewer shows what was *received*; it says
+  nothing about ft-server, brightness, or the physical matrix.
+- **Real RF.** With the Mac wired to the router, the panels' own 2.4 GHz link
+  is out of the picture — that is the part `wlan-panel-stutter.md` is about.
 
 ---
 
