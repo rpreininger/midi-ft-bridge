@@ -237,12 +237,13 @@ final class Diagnostics {
         defer {
             let ms = Date().timeIntervalSince(begin) * 1000
             if onMain { stateLock.lock(); currentSpan = nil; stateLock.unlock() }
-            // 100 ms on the main thread is already a dropped frame or two;
-            // off it, only log the slow ones to keep the soak log readable.
-            if onMain || ms > 100 {
-                log(String(format: "%@ took %.0f ms%@", name, ms,
-                           (onMain && ms > 100) ? "  <-- SLOW (main thread)" : ""))
-            }
+            // Always log, however fast it was. These are operator actions —
+            // start, stop, trigger, loop — and they are rare, so there is no
+            // noise argument for hiding them. Filtering the quick ones once
+            // cost us the answer to "what ended the overnight soak?": a
+            // stopClip that took under 100 ms left no trace at all.
+            log(String(format: "%@ took %.0f ms%@", name, ms,
+                       (onMain && ms > 100) ? "  <-- SLOW (main thread)" : ""))
         }
         return try body()
     }

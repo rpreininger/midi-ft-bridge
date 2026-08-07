@@ -362,6 +362,14 @@ void Engine::triggerNote(int note) {
 }
 
 void Engine::stopActiveClip() {
+    // An explicit stop means stop — including stopping auto-play. Otherwise
+    // the engine is left idle *and* still flagged as looping: auto-advance
+    // only runs when a clip finishes (see workerLoop), and a stopped clip
+    // never finishes, so nothing would ever start again. The UI kept saying
+    // "loop on" while the panels stayed black, with no error anywhere —
+    // silently ended a 7h39m soak on 2026-08-07.
+    m_autoPlay.store(false);
+
     {
         std::lock_guard<std::mutex> lock(m_clipMutex);
         if (m_activeClip) {
