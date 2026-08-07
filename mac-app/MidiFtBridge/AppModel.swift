@@ -241,12 +241,23 @@ final class AppModel: NSObject, ObservableObject {
             FileManager.default.changeCurrentDirectoryPath(dir)
         }
 
-        guard engine.start(withConfigPath: configURL.path, statusServer: true) else {
-            lastError = "Failed to load config from \(configURL.path)"
-            return
-        }
-        refreshState()
+        guard !busy else { return }
+        var ok = false
+        onEngineQueue("engine.start",
+                      { ok = self.engine.start(withConfigPath: configURL.path,
+                                               statusServer: true) },
+                      finish: {
+            guard ok else {
+                self.lastError = "Failed to load config from \(configURL.path)"
+                return
+            }
+            self.finishStart(configURL: configURL)
+        })
+    }
 
+    /// The cheap half of start(): snapshots the config the engine just loaded.
+    /// Runs on the main actor once the blocking half has returned.
+    private func finishStart(configURL: URL) {
         let panelDicts = engine.panels()
         panels = panelDicts.map {
             PanelInfo(
@@ -274,21 +285,53 @@ final class AppModel: NSObject, ObservableObject {
         midiDeviceSelection = (try? AppConfig.load(from: configURL.path))?.midiDevice ?? ""
     }
 
-    func stop() {
-        engine.stop()
-        previewImage = nil
-        panelStatus = []
-        refreshState()
+    /// Every engine entry point blocks: thread joins on teardown, up to 8s of
+    /// AVAsset loading in ClipPlayer::open, BLE waits. Called straight from a
+    /// button they block the main thread, which on macOS means a beachball
+    /// mid-set rather than the watchdog kill iOS delivers. Serial, so clip
+    /// triggers still apply in the order they were pressed.
+    private let engineQueue = DispatchQueue(label: "de.welt.mfb.engine-control")
+
+    /// True while a control call is in flight, so the UI can disable its
+    /// buttons instead of queueing a burst of them.
+    @Published var busy = false
+
+    private func onEngineQueue(_ name: String,
+                               _ body: @escaping () -> Void,
+                               finish: @escaping () -> Void = {}) {
+        busy = true
+        engineQueue.async {
+            Diagnostics.shared.span(name, body)
+            Task { @MainActor in
+                self.busy = false
+                finish()
+                self.refreshState()
+            }
+        }
     }
 
-    func triggerMapping(_ idx: Int) { engine.triggerMapping(at: idx) }
-    func stopClip()                 { engine.stopActiveClip() }
-    func togglePause()              { engine.togglePause() }
+    func stop() {
+        guard !busy else { return }
+        onEngineQueue("engine.stop", { self.engine.stop() }, finish: {
+            self.previewImage = nil
+            self.panelStatus = []
+        })
+    }
+
+    func triggerMapping(_ idx: Int) {
+        let name = idx < mappings.count ? mappings[idx].clip : "#\(idx)"
+        onEngineQueue("trigger(\(name))") { self.engine.triggerMapping(at: idx) }
+    }
+    func stopClip()    { onEngineQueue("stopClip")    { self.engine.stopActiveClip() } }
+    func togglePause() { onEngineQueue("togglePause") { self.engine.togglePause() } }
 
     /// Toggle test mode: play every mapping in sequence, looping endlessly.
+    /// Off the main thread like the rest: switching it on starts a clip, and
+    /// opening one can block for seconds.
     func toggleAutoPlay() {
-        engine.setAutoPlay(!autoPlay)
-        autoPlay = engine.isAutoPlay()
+        let want = !autoPlay
+        Diagnostics.shared.log("loop: \(want ? "START" : "STOP") soak")
+        onEngineQueue("setAutoPlay") { self.engine.setAutoPlay(want) }
     }
 
     // MARK: - Transport
@@ -301,11 +344,17 @@ final class AppModel: NSObject, ObservableObject {
     func nextClip()             { engine.skipToNextClip() }
     func previousClip()         { engine.skipToPreviousClip() }
 
-    /// SSH `sudo shutdown now` to all FT panels.
-    func shutdownAllPanels() { _ = engine.shutdownPanels() }
+    /// SSH `sudo shutdown now` to all FT panels. Off the main thread: this
+    /// shells out to ssh once per panel and each can sit out its own timeout,
+    /// so on the main thread it beachballs for as long as the panels take.
+    func shutdownAllPanels() {
+        onEngineQueue("shutdownPanels") { _ = self.engine.shutdownPanels() }
+    }
 
     /// SSH `sudo shutdown now` to a single FT panel by name.
-    func shutdownPanel(_ name: String) { _ = engine.shutdownPanelNamed(name) }
+    func shutdownPanel(_ name: String) {
+        onEngineQueue("shutdownPanel(\(name))") { _ = self.engine.shutdownPanelNamed(name) }
+    }
 
     /// Move selection one row down (snaps to first row if nothing selected).
     func selectNext() {

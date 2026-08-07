@@ -46,6 +46,10 @@ targets:
     platform: iOS
     sources:
       - path: MidiFtBridgeIOS
+      # Shared Swift, identical in both apps: the on-device flight recorder.
+      - path: ../shared
+        name: Shared
+        type: group
       # Shared C++/Obj-C engine, identical file list to the Mac target.
       - path: ../src
         name: Engine

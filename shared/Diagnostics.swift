@@ -25,7 +25,11 @@
 import AVFoundation
 import Darwin
 import Foundation
+#if canImport(UIKit)
 import UIKit
+#else
+import AppKit
+#endif
 
 // The signal handler may only touch async-signal-safe state: a raw fd and
 // pre-rendered C buffers, both set up long before anything can crash.
@@ -66,8 +70,17 @@ final class Diagnostics {
     private(set) var clipStarts = 0
 
     static var logURL: URL {
+        // iOS: inside the app's Documents, which UIFileSharingEnabled exposes
+        // to Finder and the Files app — the only way to get it off the device.
+        // macOS: ~/Library/Logs, where log files belong and Console.app looks;
+        // putting it in the user's Documents would be rude.
+        #if canImport(UIKit)
         let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("logs", isDirectory: true)
+        #else
+        let dir = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Logs/MIDI-FT Bridge", isDirectory: true)
+        #endif
         return dir.appendingPathComponent("mfb.log")
     }
 
@@ -82,9 +95,20 @@ final class Diagnostics {
         startMainThreadPing()
         startHeartbeat()
 
-        let dev = UIDevice.current
-        log("=== MIDI-FT Bridge \(Self.appVersion) — \(dev.model) iOS \(dev.systemVersion) ===")
+        log("=== MIDI-FT Bridge \(Self.appVersion) — \(Self.hostDescription) ===")
         log("log file: \(Self.logURL.path)")
+    }
+
+    /// Which machine and OS wrote this log — the first question you ask when
+    /// two phones and a Mac all run the same build.
+    private static var hostDescription: String {
+        let os = ProcessInfo.processInfo.operatingSystemVersion
+        let version = "\(os.majorVersion).\(os.minorVersion).\(os.patchVersion)"
+        #if canImport(UIKit)
+        return "\(UIDevice.current.model) iOS \(version)"
+        #else
+        return "\(Host.current().localizedName ?? "Mac") macOS \(version)"
+        #endif
     }
 
     private static var appVersion: String {
@@ -169,6 +193,13 @@ final class Diagnostics {
 
     private func observeSystemEvents() {
         let nc = NotificationCenter.default
+
+        // Lifecycle. iOS has the interesting cases — suspension is what stops
+        // the engine dead, and a memory warning is the shot across the bows
+        // before jetsam. macOS has neither; termination is still worth having,
+        // because its *absence* at the end of a log is how you tell a crash
+        // from someone quitting the app.
+        #if canImport(UIKit)
         let app: [(Notification.Name, String)] = [
             (UIApplication.didEnterBackgroundNotification, "app: entered background"),
             (UIApplication.willEnterForegroundNotification, "app: entering foreground"),
@@ -177,12 +208,23 @@ final class Diagnostics {
             (UIApplication.willTerminateNotification, "app: WILL TERMINATE"),
             (UIApplication.didReceiveMemoryWarningNotification, "app: MEMORY WARNING"),
         ]
+        #else
+        let app: [(Notification.Name, String)] = [
+            (NSApplication.didBecomeActiveNotification, "app: active"),
+            (NSApplication.willResignActiveNotification, "app: resigning active"),
+            (NSApplication.willTerminateNotification, "app: WILL TERMINATE"),
+        ]
+        #endif
         for (name, text) in app {
             nc.addObserver(forName: name, object: nil, queue: nil) { [weak self] _ in
                 self?.log(text)
             }
         }
 
+        // AVAudioSession is iOS-only. On macOS the equivalent failure — the
+        // output device disappearing — surfaces through the engine's own
+        // CoreAudio path, which is captured via stderr anyway.
+        #if canImport(UIKit)
         // An interruption (call, alarm, another app) stops the AudioQueue -
         // which is the clip clock, so playback stalls without any error.
         nc.addObserver(forName: AVAudioSession.interruptionNotification,
@@ -203,6 +245,7 @@ final class Diagnostics {
                        object: nil, queue: nil) { [weak self] _ in
             self?.log("audio: MEDIA SERVICES WERE RESET — audio stack is dead until restart")
         }
+        #endif
     }
 
     // MARK: - Main-thread stall detection

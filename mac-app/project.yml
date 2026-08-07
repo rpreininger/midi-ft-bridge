@@ -39,6 +39,10 @@ targets:
     platform: macOS
     sources:
       - path: MidiFtBridge
+      # Shared Swift, identical in both apps: the on-device flight recorder.
+      - path: ../shared
+        name: Shared
+        type: group
       # C++ engine sources from the parent repo. Linux-only files (alsa/bluez) excluded.
       - path: ../src
         name: Engine
