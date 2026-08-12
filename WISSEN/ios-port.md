@@ -74,9 +74,12 @@ The Mac Release build was rebuilt after all four and still succeeds.
 ## Feature losses on iOS — need decisions
 
 - **No audio output device picker.** iOS resolves the route itself by priority
-  (USB > BT > headphones > speaker). Attach the Fantom and it *becomes* the
-  route, but you cannot choose between several attached outputs, and the
-  `audio_output` config key becomes a check rather than a command.
+  (USB > BT > headphones > speaker). Attach a class-compliant USB interface and
+  it *becomes* the route, but you cannot choose between several attached
+  outputs, and the `audio_output` config key becomes a check rather than a
+  command. **The Fantom is not such an interface** — see "Fantom USB audio on
+  iOS" below; on iOS the clip audio will land on the speaker unless something
+  else is attached.
 - **No panel shutdown.** Would need an in-app SSH client (a third-party
   dependency this project has avoided) or a small HTTP endpoint on the panels.
   Currently reports the limitation instead of silently failing.
@@ -99,10 +102,57 @@ triggered and played through AVAssetReader, status server bound.
   the device test, and the phone's status server is not reachable from the Mac
   (devicectl exposes only an IPv6 tunnel address; `status_server.cpp` binds
   `AF_INET`).
-- **Fantom over USB-C into the phone/iPad** — MIDI *and* USB audio at once.
-  Still the main go/no-go.
+- **Fantom over USB-C into the phone/iPad** — MIDI works; USB audio does not.
+  Resolved, see the next section. What is still untested is the *physical*
+  link: Fantom + power through one dock into the phone.
 - **Backgrounding.** `UIBackgroundModes: audio` is declared and the idle timer
   is disabled while running, but a locked-screen set has not been tested.
+
+## Fantom USB audio on iOS — no (2026-08-12)
+
+The blocker is the keyboard, not iOS. The FANTOM-06/07/08 has a **USB Driver**
+system setting (MENU > SYSTEM > GENERAL > USB Driver, then WRITE + power-cycle):
+
+| Mode | Carries | Needs |
+|---|---|---|
+| **VENDOR** | MIDI **+ audio** | Roland's USB driver — macOS/Windows only |
+| **GENERIC** (class compliant) | **MIDI only** | nothing |
+
+iOS cannot install a vendor driver, so the only mode an iPhone can talk to is
+GENERIC, and GENERIC carries no audio streams on this instrument. That holds in
+**both** directions: no Fantom audio into the phone, and no clip audio out to
+the Fantom. Set **GENERIC** for the iOS rig — that is also the mode Roland
+recommends for iOS, and MIDI is all we take from that cable anyway.
+
+Source: Roland support, ["How to change the USB Driver Setting"][r1] and
+["Using the instrument as an audio interface"][r2]. Not yet bench-confirmed.
+The cheap check: GENERIC + Roland driver *not* loaded, plug into the Mac, and
+look in Audio-MIDI-Setup. No FANTOM audio device while MIDI still works = the
+above, confirmed.
+
+[r1]: https://support.roland.com/hc/en-us/articles/4772141811611-FANTOM-06-FANTOM-07-FANTOM-08-How-to-change-the-USB-Driver-Setting
+[r2]: https://support.roland.com/hc/en-us/articles/4570464937755-FANTOM-06-FANTOM-07-FANTOM-08-Using-the-instrument-as-an-audio-interface
+
+**Can we write a driver?** Not for iPhone. iOS has no kernel extensions and no
+third-party DriverKit; USB access for App Store apps is limited to MFi
+accessories via ExternalAccessory, which the Fantom is not. DriverKit (incl.
+AudioDriverKit) *did* come to **iPadOS 16 on M-series iPads**, so on an M-chip
+iPad it is theoretically in scope — but it would mean reverse-engineering
+Roland's proprietary VENDOR protocol, and it does not help the iPhone-master
+rig. Dead end.
+
+**If audio into the phone is ever wanted:** analog out of the Fantom (MAIN OUT
+or PHONES) into a small class-compliant USB-C interface, which iOS handles as
+input *and* output. Cost in code: `prepareForPlayback()` in
+`audio_output_macos.mm` sets `AVAudioSessionCategoryPlayback` once under a
+`call_once`; input needs `playAndRecord` (which changes the output-route rules
+and so touches the playback path that currently works), plus
+`NSMicrophoneUsageDescription` and an `AVAudioEngine` input tap.
+
+Worth asking first what the audio would be *for*. Audio-reactive LEDs are
+better served by the MIDI events the engine already has — zero latency, no
+false triggers. And getting keyboard + clip audio to the PA needs no phone
+routing at all: two mixer channels.
 
 ## USB-C Ethernet
 

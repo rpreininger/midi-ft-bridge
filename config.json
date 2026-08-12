@@ -1,5 +1,4 @@
 {
-  "audio_device" : "hw:Fantom,0",
   "audio_output" : "",
   "clips_dir" : "./clips",
   "debug" : 1,

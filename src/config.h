@@ -49,10 +49,11 @@ struct Config {
     int midi_channel = -1;  // MIDI channel filter (0-15, -1 = any). Channel 10 = 9 (0-indexed)
     std::string midi_device;  // Preferred MIDI input device (display-name substring, case-
                               // insensitive). Empty = connect to all available sources.
-    std::string audio_device;  // ALSA PCM device for audio output (e.g. "hw:1,0"). Empty = disabled.
+    std::string audio_device;  // Pi-era ALSA PCM device (e.g. "hw:1,0"). Dead on this tree -
+                               // AudioPlayer::init() is a no-op and the key was dropped from
+                               // config.json; still parsed so old config files load unchanged.
     std::string audio_output;  // macOS: CoreAudio output device to route clip audio to (name
-                               // substring, case-insensitive). Empty = system default. Ignored
-                               // on Linux (ALSA uses audio_device).
+                               // substring, case-insensitive). Empty = system default.
     bool debug = false;     // Enable verbose BLE/send logging
 
     bool load(const std::string& path) {

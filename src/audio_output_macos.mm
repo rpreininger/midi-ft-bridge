@@ -251,10 +251,15 @@ void prepareForPlayback() {}
 //    * getSelectedName() is the live route, not a stored preference.
 //    * selectByNameSubstring() only confirms a match; it cannot force one.
 //
-//  Practical effect for this app: attach the Fantom (or any USB audio
-//  interface) and it *becomes* the route on its own. What is lost is
+//  Practical effect for this app: attach a class-compliant USB audio
+//  interface and it *becomes* the route on its own. What is lost is
 //  choosing between several attached outputs, and the config's
 //  "audio_output" key is therefore a check, not a command.
+//
+//  The Fantom is NOT such an interface: in GENERIC (class-compliant) mode
+//  it carries MIDI only, and its audio streams need Roland's vendor driver,
+//  which iOS cannot load. So on iOS clip audio never reaches the keyboard -
+//  see "Fantom USB audio on iOS" in WISSEN/ios-port.md.
 
 #import <AVFoundation/AVFoundation.h>
 
