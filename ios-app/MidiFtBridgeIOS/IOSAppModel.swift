@@ -25,6 +25,11 @@ struct PanelInfo: Identifiable {
     let ip: String
     let framesSent: UInt64
     let connected: Bool
+    /// Packets the socket refused. framesSent counts what we handed to the
+    /// socket, so a climbing frame count with sendErrors > 0 means the panel
+    /// is dark despite looking busy.
+    let sendErrors: UInt64
+    let lastError: String
 }
 
 @MainActor
@@ -39,6 +44,7 @@ final class IOSAppModel: NSObject, ObservableObject {
     @Published var panels: [PanelInfo] = []
     @Published var status = "Idle"
     @Published var shutdownResult: String?
+    @Published var panelCheckResult: String?
 
     /// Soak test: play every mapping in sequence, endlessly. Same engine
     /// auto-play the Mac app drives from "Loop All (Test)" - the loop runs
@@ -168,6 +174,17 @@ final class IOSAppModel: NSObject, ObservableObject {
         onEngineQueue("setAutoPlay") { self.engine.setAutoPlay(want) }
     }
 
+    /// Read-only reachability check for every FT panel. Safe to tap any time:
+    /// it only GETs /ping, so it is the diagnostic the power button should
+    /// never have had to be.
+    func pingPanels() {
+        panelCheckResult = "Checking panels…"
+        DispatchQueue.global(qos: .userInitiated).async { [engine] in
+            let summary = engine.pingPanels()
+            DispatchQueue.main.async { self.panelCheckResult = summary }
+        }
+    }
+
     /// Shut down all FT panels via their HTTP endpoints. Each request blocks up
     /// to 3s, so run it off the main thread and report the per-panel summary.
     func shutdownPanels() {
@@ -206,7 +223,9 @@ final class IOSAppModel: NSObject, ObservableObject {
             PanelInfo(name:       (d["name"] as? String) ?? "",
                       ip:         (d["ip"] as? String) ?? "",
                       framesSent: (d["framesSent"] as? NSNumber)?.uint64Value ?? 0,
-                      connected:  (d["connected"] as? Bool) ?? false)
+                      connected:  (d["connected"] as? Bool) ?? false,
+                      sendErrors: (d["sendErrors"] as? NSNumber)?.uint64Value ?? 0,
+                      lastError:  (d["lastError"] as? String) ?? "")
         }
 
         updateSoakSummary()
@@ -215,7 +234,10 @@ final class IOSAppModel: NSObject, ObservableObject {
     /// One line of soak health, mirrored into every heartbeat in the log so a
     /// crashed run can be read back afterwards.
     private func updateSoakSummary() {
-        let frames = panels.map { "\($0.name.prefix(1))=\($0.framesSent)" }.joined(separator: " ")
+        let frames = panels.map { p in
+            p.sendErrors == 0 ? "\(p.name.prefix(1))=\(p.framesSent)"
+                              : "\(p.name.prefix(1))=\(p.framesSent)!\(p.sendErrors)"
+        }.joined(separator: " ")
         let mem = String(format: "%.0fMB", Diagnostics.memoryFootprintMB())
         let clips = Diagnostics.shared.clipStarts
 

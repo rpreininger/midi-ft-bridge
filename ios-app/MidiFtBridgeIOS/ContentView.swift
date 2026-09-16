@@ -45,6 +45,16 @@ struct ContentView: View {
                     }
                     .tint(.orange)
                 }
+                // Deliberately next to the power button: checking whether the
+                // panels are reachable used to require tapping the one control
+                // that turns them off.
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        model.pingPanels()
+                    } label: {
+                        Image(systemName: "antenna.radiowaves.left.and.right")
+                    }
+                }
                 // In the toolbar rather than on screen: a switch that costs
                 // vertical space would defeat the point of the switch.
                 ToolbarItem(placement: .topBarTrailing) {
@@ -72,6 +82,13 @@ struct ContentView: View {
                 Button("Cancel", role: .cancel) {}
             } message: {
                 Text("Powers off every FT panel. They must be switched back on by hand.")
+            }
+            .alert("Panel check",
+                   isPresented: Binding(get: { model.panelCheckResult != nil },
+                                        set: { if !$0 { model.panelCheckResult = nil } })) {
+                Button("OK") { model.panelCheckResult = nil }
+            } message: {
+                Text(model.panelCheckResult ?? "")
             }
             .alert("Panel shutdown",
                    isPresented: Binding(get: { model.shutdownResult != nil },
@@ -175,14 +192,19 @@ struct ContentView: View {
                     ForEach(model.panels) { p in
                         HStack(spacing: 3) {
                             Circle()
-                                .fill(p.connected ? .green : .red)
+                                .fill(p.sendErrors > 0 ? .orange
+                                      : (p.connected ? .green : .red))
                                 .frame(width: 6, height: 6)
                             // A healthy panel needs only its frame count; a
                             // dead one needs the address you would go and
                             // check, so that is where the detail belongs.
-                            Text(p.connected
-                                 ? "\(p.name.prefix(3)) \(p.framesSent)"
-                                 : "\(p.name.prefix(3)) \(p.ip)")
+                            // Refused packets outrank both: the socket is up
+                            // and frames are counting, yet nothing is landing.
+                            Text(p.sendErrors > 0
+                                 ? "\(p.name.prefix(3)) \(p.ip) x\(p.sendErrors)"
+                                 : (p.connected
+                                    ? "\(p.name.prefix(3)) \(p.framesSent)"
+                                    : "\(p.name.prefix(3)) \(p.ip)"))
                         }
                     }
                     Spacer(minLength: 0)

@@ -15,8 +15,10 @@ struct PanelStatus {
     std::string name;
     std::string ip;
     int port;
-    uint64_t framesSent;
+    uint64_t framesSent;   // frames handed to the socket, NOT frames delivered
     uint64_t bytesSent;
+    uint64_t sendErrors = 0;  // packets sendto() refused; >0 means dark panel
+    std::string lastError;    // strerror of the most recent refusal
     bool enabled;
     std::string activeClip;  // Currently playing clip name, empty if idle
     std::string type;        // "ft" / "ble" — only "ft" panels can be SSH shut down

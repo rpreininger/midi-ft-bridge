@@ -110,6 +110,11 @@ public:
     std::string shutdownPanels();
     std::string shutdownPanel(const std::string& name);
 
+    // Read-only reachability check: GETs /ping on each FT panel's shutdown
+    // endpoint and appends any send-error counts. Safe to call any time --
+    // unlike shutdownPanels(), it changes nothing.
+    std::string pingPanels();
+
 private:
     void workerLoop();
     void sendBlackToAll();

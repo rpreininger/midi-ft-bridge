@@ -15,15 +15,17 @@
 #include <TargetConditionals.h>   // TARGET_OS_IPHONE, selects the shutdown path
 #endif
 
-#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
-// iOS shuts panels down over HTTP (no ssh in the sandbox); needs sockets.
+// Sockets are used on every platform now: iOS shuts panels down over HTTP (no
+// ssh in the sandbox), and both platforms use the same endpoint for the
+// read-only /ping reachability check.
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <errno.h>
 #include <sys/select.h>
-#endif
+#include <ifaddrs.h>
+#include <net/if.h>
 
 #ifdef MFB_NATIVE_MACOS
 #include "audio_output_macos.h"
@@ -34,15 +36,6 @@ namespace {
 bool isShutdownable(const PanelConfig& p) {
     return p.type == "ft" && !p.ip.empty() && p.ip != "127.0.0.1";
 }
-
-// Shut one panel down; returns a one-line "name (ip): <result>".
-//
-// macOS shells out to ssh (below). iOS cannot -- a sandboxed app may not spawn
-// processes and there is no ssh binary -- so it POSTs... GETs a small HTTP
-// endpoint each panel runs (setup/panel-shutdown-service.sh), which does the
-// `sudo shutdown now` locally. `port`/`token` come from config; macOS ignores
-// them.
-#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
 
 // Minimal blocking HTTP/1.0 GET. Returns the HTTP status code, or -1 on any
 // connect/IO error. Bounded by timeoutMs on both connect and recv so one dead
@@ -88,6 +81,39 @@ int httpGetStatus(const std::string& ip, int port, const std::string& path, int 
     size_t sp = resp.find(' ');
     return (sp == std::string::npos) ? -1 : atoi(resp.c_str() + sp + 1);
 }
+
+// Report every non-loopback IPv4 this device currently holds. The panels sit on
+// a fixed subnet, so "we are not on that network" is the most common reason for
+// a dark wall -- and it is invisible from frame counters, which count frames
+// handed to a socket rather than frames delivered.
+void logLocalAddresses() {
+    struct ifaddrs* ifs = nullptr;
+    if (getifaddrs(&ifs) != 0) {
+        std::cerr << "Engine: local IPv4 (unavailable)" << std::endl;
+        return;
+    }
+    std::string line;
+    for (struct ifaddrs* ifa = ifs; ifa; ifa = ifa->ifa_next) {
+        if (!ifa->ifa_addr || ifa->ifa_addr->sa_family != AF_INET) continue;
+        if (!(ifa->ifa_flags & IFF_UP) || (ifa->ifa_flags & IFF_LOOPBACK)) continue;
+        char buf[INET_ADDRSTRLEN] = {0};
+        auto* sin = reinterpret_cast<struct sockaddr_in*>(ifa->ifa_addr);
+        if (!inet_ntop(AF_INET, &sin->sin_addr, buf, sizeof(buf))) continue;
+        if (!line.empty()) line += ", ";
+        line += std::string(ifa->ifa_name) + "=" + buf;
+    }
+    freeifaddrs(ifs);
+    std::cerr << "Engine: local IPv4 " << (line.empty() ? "(none)" : line) << std::endl;
+}
+
+// Shut one panel down; returns a one-line "name (ip): <result>".
+//
+// macOS shells out to ssh (below). iOS cannot -- a sandboxed app may not spawn
+// processes and there is no ssh binary -- so it POSTs... GETs a small HTTP
+// endpoint each panel runs (setup/panel-shutdown-service.sh), which does the
+// `sudo shutdown now` locally. `port`/`token` come from config; macOS ignores
+// them.
+#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
 
 std::string panelShutdown(const PanelConfig& p, int port, const std::string& token) {
     std::string result;
@@ -190,6 +216,7 @@ bool Engine::start(const std::string& configPath, bool statusServerEnabled) {
         }
     }
     std::cerr << "Engine: " << m_config.panels.size() << " panel senders initialized" << std::endl;
+    logLocalAddresses();
 
     // Audio
     if (!m_config.audio_device.empty()) {
@@ -475,6 +502,31 @@ std::vector<PanelStatus> Engine::getPanelStatus() const {
     return m_lastPanelStatus;
 }
 
+std::string Engine::pingPanels() {
+    std::string result;
+    for (const auto& panel : m_config.panels) {
+        if (!isShutdownable(panel)) continue;
+        const int code = httpGetStatus(panel.ip, m_config.shutdown_port, "/ping", 1500);
+        const std::string verdict =
+              (code == 200) ? "reachable"
+            : (code <  0)   ? "NO RESPONSE (wrong network, panel off, or Local Network denied)"
+                            : ("unexpected HTTP " + std::to_string(code));
+        result += panel.name + " (" + panel.ip + "): " + verdict + "\n";
+    }
+    if (result.empty()) result = "No FT panels configured.\n";
+
+    // Send-side counters, so one tap answers "is anything actually leaving?".
+    for (size_t i = 0; i < m_config.panels.size(); ++i) {
+        if (m_config.panels[i].type == "ble" || !m_senders[i]) continue;
+        const uint64_t errs = m_senders[i]->getSendErrors();
+        if (errs == 0) continue;
+        result += m_config.panels[i].name + ": " + std::to_string(errs) +
+                  " packets refused (" + m_senders[i]->getLastErrorText() + ")\n";
+    }
+    std::cerr << "Ping panels:\n" << result;
+    return result;
+}
+
 std::string Engine::shutdownPanels() {
     std::string result;
     for (const auto& panel : m_config.panels) {
@@ -623,6 +675,8 @@ void Engine::workerLoop() {
                     ps.framesSent = m_senders[i]->getFramesSent();
                     ps.bytesSent  = m_senders[i]->getBytesSent();
                     ps.enabled    = m_senders[i]->isEnabled();
+                    ps.sendErrors = m_senders[i]->getSendErrors();
+                    ps.lastError  = m_senders[i]->getLastErrorText();
                 } else {
                     ps.framesSent = 0;
                     ps.bytesSent  = 0;

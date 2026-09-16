@@ -92,6 +92,10 @@ NS_ASSUME_NONNULL_BEGIN
 /// Shut down the named FT panel; returns a one-line result.
 - (NSString *)shutdownPanelNamed:(NSString *)name;
 
+/// Read-only: GET /ping on every FT panel's shutdown endpoint, plus any
+/// send-error counts. Changes nothing; safe to call at any time.
+- (NSString *)pingPanels;
+
 @end
 
 NS_ASSUME_NONNULL_END

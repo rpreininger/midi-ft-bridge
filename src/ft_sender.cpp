@@ -18,6 +18,10 @@
 // 128 pixels * 3 bytes * 3 rows = 1152 bytes + ~30 byte header = ~1182 bytes
 static const int TILE_ROWS = 3;
 
+// Log the first send failure, then one line per this many refused packets. A
+// panel that is simply not on the network must say so once, not 25x a second.
+static const uint64_t ERROR_LOG_EVERY = 500;
+
 FTSender::FTSender()
     : m_socket(-1)
     , m_destAddr{}
@@ -25,6 +29,8 @@ FTSender::FTSender()
     , m_enabled(false)
     , m_framesSent(0)
     , m_bytesSent(0)
+    , m_sendErrors(0)
+    , m_lastErrno(0)
     , m_port(1337)
 {
 }
@@ -81,6 +87,8 @@ void FTSender::send(const uint8_t* framebuffer, int width, int height,
     }
 
     // Send frame as row-strip tiles to avoid IP fragmentation
+    uint64_t failed = 0;
+    int firstErrno = 0;
     for (int y = 0; y < height; y += TILE_ROWS) {
         int tileH = std::min(TILE_ROWS, height - y);
         int tilePixels = width * tileH * 3;
@@ -101,12 +109,16 @@ void FTSender::send(const uint8_t* framebuffer, int width, int height,
         memcpy(m_packetBuffer.data() + headerLen,
                framebuffer + (y * width * 3), tilePixels);
 
-        sendto(m_socket, m_packetBuffer.data(), packetSize, 0,
-               (struct sockaddr*)&m_destAddr, sizeof(m_destAddr));
+        if (sendto(m_socket, m_packetBuffer.data(), packetSize, 0,
+                   (struct sockaddr*)&m_destAddr, sizeof(m_destAddr)) < 0) {
+            if (failed == 0) firstErrno = errno;   // capture before it is clobbered
+            ++failed;
+        }
     }
 
     m_framesSent++;
     m_bytesSent += width * height * 3;
+    if (failed > 0) noteSendError(failed, firstErrno);
 }
 
 void FTSender::sendRaw(const uint8_t* framebuffer, int width, int height) {
@@ -129,11 +141,30 @@ void FTSender::sendRaw(const uint8_t* framebuffer, int width, int height) {
     m_packetBuffer[3] = (height >> 8) & 0xFF;
     memcpy(m_packetBuffer.data() + 4, framebuffer, rgbSize);
 
-    sendto(m_socket, m_packetBuffer.data(), packetSize, 0,
-           (struct sockaddr*)&m_destAddr, sizeof(m_destAddr));
+    if (sendto(m_socket, m_packetBuffer.data(), packetSize, 0,
+               (struct sockaddr*)&m_destAddr, sizeof(m_destAddr)) < 0) {
+        noteSendError(1, errno);
+    }
 
     m_framesSent++;
     m_bytesSent += packetSize;
+}
+
+void FTSender::noteSendError(uint64_t failedPackets, int err) {
+    m_lastErrno.store(err, std::memory_order_relaxed);
+    const uint64_t before = m_sendErrors.fetch_add(failedPackets);
+    const uint64_t after  = before + failedPackets;
+
+    if (before == 0 || (before / ERROR_LOG_EVERY) != (after / ERROR_LOG_EVERY)) {
+        std::cerr << "FTSender: " << m_host << ":" << m_port
+                  << " send failed: " << strerror(err)
+                  << " (" << after << " packets dropped)" << std::endl;
+    }
+}
+
+std::string FTSender::getLastErrorText() const {
+    const int err = m_lastErrno.load(std::memory_order_relaxed);
+    return err == 0 ? std::string() : std::string(strerror(err));
 }
 
 void FTSender::sendBlack(int width, int height) {

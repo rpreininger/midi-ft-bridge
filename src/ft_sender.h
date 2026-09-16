@@ -38,9 +38,20 @@ public:
     // Enable/disable sending
     void setEnabled(bool enabled) { m_enabled.store(enabled); }
 
-    // Get statistics
+    // Get statistics. NOTE: framesSent counts frames handed to the socket,
+    // not frames that arrived -- UDP gives us no delivery signal. A frame is
+    // counted even if every one of its packets was refused locally, so read it
+    // together with getSendErrors().
     uint64_t getFramesSent() const { return m_framesSent.load(); }
     uint64_t getBytesSent() const { return m_bytesSent.load(); }
+
+    // Packets sendto() refused. Non-zero means the frames above went nowhere.
+    // Typically EHOSTUNREACH/ENETUNREACH (this device is not on the panel's
+    // subnet) or EPERM (iOS Local Network permission not granted); EAGAIN just
+    // means the send buffer was momentarily full, which is congestion, not a
+    // fault -- getLastErrorText() is what tells the two apart.
+    uint64_t getSendErrors() const { return m_sendErrors.load(); }
+    std::string getLastErrorText() const;
 
     // Get connection info
     const std::string& getHost() const { return m_host; }
@@ -53,11 +64,16 @@ private:
     std::atomic<bool> m_enabled;
     std::atomic<uint64_t> m_framesSent;
     std::atomic<uint64_t> m_bytesSent;
+    std::atomic<uint64_t> m_sendErrors;
+    std::atomic<int> m_lastErrno;
     std::string m_host;
     int m_port;
 
     // Pre-allocated packet buffer (avoids new/delete per frame)
     std::vector<uint8_t> m_packetBuffer;
+
+    // Record `failedPackets` refused sends (errno `err`) and log, throttled.
+    void noteSendError(uint64_t failedPackets, int err);
 };
 
 #endif // FT_SENDER_H

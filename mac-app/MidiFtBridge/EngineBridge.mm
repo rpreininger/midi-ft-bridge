@@ -202,6 +202,8 @@
             @"ip":         [NSString stringWithUTF8String:p.ip.c_str()],
             @"port":       @(p.port),
             @"framesSent": @(p.framesSent),
+            @"sendErrors": @(p.sendErrors),
+            @"lastError": [NSString stringWithUTF8String:p.lastError.c_str()],
             @"bytesSent":  @(p.bytesSent),
             @"connected":  @(p.enabled),
             @"activeClip": [NSString stringWithUTF8String:p.activeClip.c_str()],
@@ -209,6 +211,11 @@
         }];
     }
     return out;
+}
+
+- (NSString *)pingPanels {
+    if (!_engine) return @"engine not running";
+    return [NSString stringWithUTF8String:_engine->pingPanels().c_str()];
 }
 
 - (NSString *)shutdownPanels {
