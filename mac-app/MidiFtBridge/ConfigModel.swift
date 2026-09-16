@@ -104,6 +104,12 @@ struct AppConfig: Codable, Equatable {
     var webPort = 8080
     var audioOutput = ""     // macOS CoreAudio output device (name substring); "" = system default
     var debug = 0            // 0/1 (kept as Int to match the C++ parser)
+    // Panel shutdown over HTTP (the iOS path; see src/config.h). Carried in
+    // the model purely so a save round-trips them -- a key with no property is
+    // silently dropped by Codable, which is how these two went missing before.
+    // Empty token = feature disabled, matching the C++ default.
+    var shutdownPort = 8081
+    var shutdownToken = ""
 
     // Order chosen so the written file reads like the original config.json.
     enum CodingKeys: String, CodingKey {
@@ -118,6 +124,8 @@ struct AppConfig: Codable, Equatable {
         case webPort = "web_port"
         case audioOutput = "audio_output"
         case debug
+        case shutdownPort = "shutdown_port"
+        case shutdownToken = "shutdown_token"
     }
 
     init() {}
@@ -135,6 +143,8 @@ struct AppConfig: Codable, Equatable {
         webPort = try c.decodeIfPresent(Int.self, forKey: .webPort) ?? 8080
         audioOutput = try c.decodeIfPresent(String.self, forKey: .audioOutput) ?? ""
         debug = try c.decodeIfPresent(Int.self, forKey: .debug) ?? 0
+        shutdownPort = try c.decodeIfPresent(Int.self, forKey: .shutdownPort) ?? 8081
+        shutdownToken = try c.decodeIfPresent(String.self, forKey: .shutdownToken) ?? ""
     }
 
     /// Distinct panel names plus the "all" pseudo-target, for mapping pickers.
