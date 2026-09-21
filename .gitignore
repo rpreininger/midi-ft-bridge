@@ -30,3 +30,7 @@ MIDI-FT-Bridge-*-macos.zip
 
 # Generated AppleScript droplet (source is the .applescript)
 clips/*.app/
+
+# Source material dropped in by hand (playlist screenshots etc.) — the repo is
+# public, so these stay local
+Docs/
