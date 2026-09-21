@@ -126,17 +126,18 @@ Edit `config.json` (or use the in-app **Edit Config…** editor):
 
 | Note | MIDI # | Note | MIDI # |
 |------|--------|------|--------|
-| C2 | 36 | F#2 | 42 |
-| C#2 | 37 | G2 | 43 |
-| D2 | 38 | G#2 | 44 |
-| D#2 | 39 | A2 | 45 |
-| E2 | 40 | A#2 | 46 |
-| F2 | 41 | B2 | 47 |
+| C2 | 36 | G2 | 43 |
+| C#2 | 37 | G#2 | 44 |
+| D2 | 38 | A2 | 45 |
+| D#2 | 39 | A#2 | 46 |
+| E2 | 40 | B2 | 47 |
+| F2 | 41 | C3 | 48 |
+| F#2 | 42 | C#3 | 49 |
 
 ## 6. Testing
 
 - **Live MIDI:** launch the app, connect the Fantom via USB. The connected
-  device shows next to the 🎹 icon; notes 36–47 on channel 10 trigger clips.
+  device shows next to the 🎹 icon; notes 36–49 on channel 10 trigger clips.
 - **Without MIDI:** the app's "Loop All (Test)" button cycles every mapping;
   individual rows have a "Trigger" button.
 - **Status web page:** http://localhost:8080 (also remotely from a phone)

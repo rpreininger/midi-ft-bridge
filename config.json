@@ -5,68 +5,73 @@
   "default_fps" : 25,
   "mappings" : [
     {
-      "clip" : "mp4/Fly.mp4",
+      "clip" : "mp4/Intro.mp4",
       "note" : 36,
       "panel" : "all"
     },
     {
-      "clip" : "mp4/Moon.mp4",
+      "clip" : "mp4/Fly.mp4",
       "note" : 37,
       "panel" : "all"
     },
     {
-      "clip" : "mp4/Pixel.mp4",
+      "clip" : "mp4/Moon.mp4",
       "note" : 38,
       "panel" : "all"
     },
     {
-      "clip" : "mp4/Tennis.mp4",
+      "clip" : "mp4/Pixel.mp4",
       "note" : 39,
       "panel" : "all"
     },
     {
-      "clip" : "mp4/Neutrino.mp4",
+      "clip" : "mp4/OYM.mp4",
       "note" : 40,
       "panel" : "all"
     },
     {
-      "clip" : "mp4/Magneto.mp4",
+      "clip" : "mp4/Tennis.mp4",
       "note" : 41,
       "panel" : "all"
     },
     {
-      "clip" : "mp4/Jiffy.mp4",
+      "clip" : "mp4/Neutrino.mp4",
       "note" : 42,
       "panel" : "all"
     },
     {
-      "clip" : "mp4/Black.mp4",
+      "clip" : "mp4/ZX89.mp4",
       "note" : 43,
       "panel" : "all"
     },
     {
-      "clip" : "mp4/Shrink.mp4",
+      "clip" : "mp4/Magneto.mp4",
       "note" : 44,
       "panel" : "all"
     },
     {
-      "clip" : "mp4/Shin.mp4",
+      "clip" : "mp4/Jiffy.mp4",
       "note" : 45,
       "panel" : "all"
     },
     {
-      "clip" : "mp4/Axel.mp4",
+      "clip" : "mp4/Black.mp4",
       "note" : 46,
       "panel" : "all"
     },
     {
-      "clip" : "mp4/ZX89.mp4",
+      "clip" : "mp4/Shrink.mp4",
       "note" : 47,
       "panel" : "all"
     },
     {
-      "clip" : "mp4/OYM.mp4",
+      "clip" : "mp4/Shin.mp4",
       "note" : 48,
+      "panel" : "all"
+    },
+    {
+      "clip" : "mp4/Axel.mp4",
+      "note" : 49,
       "panel" : "all"
     }
   ],
