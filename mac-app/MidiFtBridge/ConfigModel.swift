@@ -110,6 +110,9 @@ struct AppConfig: Codable, Equatable {
     // Empty token = feature disabled, matching the C++ default.
     var shutdownPort = 8081
     var shutdownToken = ""
+    // Note that stops the running clip; -1 = no stop key. Same reason as the
+    // two above: a key with no property here is dropped on save.
+    var stopNote = -1
 
     // Order chosen so the written file reads like the original config.json.
     enum CodingKeys: String, CodingKey {
@@ -126,6 +129,7 @@ struct AppConfig: Codable, Equatable {
         case debug
         case shutdownPort = "shutdown_port"
         case shutdownToken = "shutdown_token"
+        case stopNote = "stop_note"
     }
 
     init() {}
@@ -145,6 +149,7 @@ struct AppConfig: Codable, Equatable {
         debug = try c.decodeIfPresent(Int.self, forKey: .debug) ?? 0
         shutdownPort = try c.decodeIfPresent(Int.self, forKey: .shutdownPort) ?? 8081
         shutdownToken = try c.decodeIfPresent(String.self, forKey: .shutdownToken) ?? ""
+        stopNote = try c.decodeIfPresent(Int.self, forKey: .stopNote) ?? -1
     }
 
     /// Distinct panel names plus the "all" pseudo-target, for mapping pickers.

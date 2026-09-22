@@ -114,6 +114,7 @@ Edit `config.json` (or use the in-app **Edit Config…** editor):
 | `panels` | FT/BLE panel targets with crop regions |
 | `src_x/y/w/h` | Region to extract from the decoded video frame |
 | `midi_channel` | MIDI channel filter (0-indexed, 9 = ch10). -1 = any |
+| `stop_note` | Note that stops the running clip and blacks the panels. -1 = no stop key |
 | `midi_device` | Preferred MIDI input (name substring). Empty = all sources. Set it in the config editor's device picker |
 | `mappings` | MIDI note → video clip mapping |
 | `clips_dir` | Directory containing MP4 video clips |

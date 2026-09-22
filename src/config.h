@@ -47,6 +47,8 @@ struct Config {
     int shutdown_port = 8081;
     std::string shutdown_token;
     int midi_channel = -1;  // MIDI channel filter (0-15, -1 = any). Channel 10 = 9 (0-indexed)
+    int stop_note = -1;     // Note that stops the running clip and blacks the panels.
+                            // -1 = no stop key. Obeys midi_channel like a trigger.
     std::string midi_device;  // Preferred MIDI input device (display-name substring, case-
                               // insensitive). Empty = connect to all available sources.
     std::string audio_device;  // Pi-era ALSA PCM device (e.g. "hw:1,0"). Dead on this tree -
@@ -142,6 +144,7 @@ struct Config {
         shutdown_port = extractInt(json, "shutdown_port", 8081);
         shutdown_token = extractString(json, "shutdown_token");
         midi_channel = extractInt(json, "midi_channel", -1);
+        stop_note = extractInt(json, "stop_note", -1);
         midi_device = extractString(json, "midi_device");
         audio_device = extractString(json, "audio_device");
         audio_output = extractString(json, "audio_output");
@@ -158,7 +161,22 @@ struct Config {
         if (midi_channel >= 0) {
             std::cerr << ", MIDI channel filter: " << (midi_channel + 1);
         }
+        if (stop_note >= 0) {
+            std::cerr << ", stop note: " << stop_note;
+        }
         std::cerr << std::endl;
+
+        // A stop key that is also a trigger would shadow that clip: the stop
+        // check runs first, so the clip could never be reached.
+        for (const auto& m : mappings) {
+            if (stop_note >= 0 && m.note == stop_note) {
+                std::cerr << "Config: WARNING stop_note " << stop_note
+                          << " is also mapped to " << m.clip
+                          << " -- the stop key wins, that clip is unreachable"
+                          << std::endl;
+                break;
+            }
+        }
         return true;
     }
 

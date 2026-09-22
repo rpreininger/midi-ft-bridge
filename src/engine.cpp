@@ -568,6 +568,14 @@ void Engine::workerLoop() {
             if (event.type != MidiEvent::NOTE_ON) continue;
             if (m_config.midi_channel >= 0 && event.channel != m_config.midi_channel) continue;
 
+            // Stop key: kills the running clip and blacks the panels. Checked
+            // before the mapping lookup so it works even while a clip plays.
+            if (m_config.stop_note >= 0 && event.note == m_config.stop_note) {
+                std::cerr << "Engine: stop note=" << event.note << std::endl;
+                stopActiveClip();
+                continue;
+            }
+
             auto it = m_noteMappings.find(event.note);
             if (it == m_noteMappings.end()) continue;
             triggerMapping(it->second);
