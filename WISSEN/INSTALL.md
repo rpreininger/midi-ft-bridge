@@ -122,6 +122,8 @@ Edit `config.json` (or use the in-app **Edit Config…** editor):
 | `type` | Panel type: omit for FT, `"ble"` for native CoreBluetooth BLE |
 | `max_fps` | Per-panel FPS throttle (for BLE bandwidth) |
 | `web_port` | Status web UI port |
+| `shutdown_port` | Port of the panels' HTTP shutdown endpoint (default 8081) |
+| `shutdown_token` | Shared secret for that endpoint. Empty = HTTP shutdown off; the Mac then falls back to ssh. Deliberately absent from the repo's config.json |
 
 ### MIDI note reference (Fantom key labels: lowest key = C1 = 36)
 
@@ -154,6 +156,34 @@ ever matches raw note numbers.
 - In the app's **Edit Config… → General → MIDI input device**, hit the rescan
   button; pick the device (or "All sources").
 - Make sure the Fantom is on a USB-A data port (not USB-C power only).
+- Check **MENU → SYSTEM → GENERAL → USB Driver** on the Fantom. Either setting
+  carries MIDI, but after changing it you must **WRITE and power-cycle the
+  Fantom** — it only takes effect after a restart.
+
+### No FANTOM audio device in Audio MIDI Setup
+- USB audio needs `USB Driver` = **VENDOR** plus Roland's vendor driver
+  ([FANTOM-06/07/08 Driver for macOS Sonoma 14.x or later][rd]). In GENERIC
+  mode the Fantom carries MIDI only, driver or not.
+- After installing, approve the system extension in **System Settings →
+  Privacy & Security** and reboot the Mac.
+- **Power-cycle the Fantom** after switching to VENDOR — without the restart
+  the setting is not applied and no audio device appears.
+- Note: the iOS rig needs **GENERIC** (iOS cannot load the vendor driver), so
+  switch back before an iPhone test — see `ios-test-checklist.md`.
+
+[rd]: https://www.roland.com/global/support/by_product/fantom-06/updates_drivers/
+
+### Panels won't shut down from the app
+The shutdown button tries the panel's HTTP endpoint first and falls back to
+`ssh root@<ip> 'sudo shutdown now'`; the result line names the path that
+worked, or why both failed.
+- **HTTP:** install the endpoint on each panel (once per panel):
+  `ssh root@192.168.10.21 "TOKEN=<token> sh -s" < setup/panel-shutdown-service.sh`,
+  then put the same token in `shutdown_token` in the Mac's config. Check it
+  with the app's ping button, or `curl http://192.168.10.21:8081/ping`.
+- **ssh:** needs the Mac's root key on the panel — see
+  `panel-seal-checklist.md`. This is the only path when no token is set, and
+  the only one iOS does *not* have.
 
 ### No image on a panel
 - Verify `ft-server` is running on the panel: `ss -ulnp | grep 1337`.
