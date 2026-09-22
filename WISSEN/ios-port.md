@@ -261,6 +261,26 @@ the CoreDevice UUID that `devicectl list devices` prints — `devicectl` wants
 the latter. Get the hardware UDID from `xcodebuild -showdestinations`. If two
 phones share a name, rename one (Settings → General → About → Name).
 
+**A `generic/platform=iOS` build does not register anything.** Adding the iPad
+(2026-08-18) built fine that way, then `devicectl device install app` refused
+it with `0xe8008012 (This provisioning profile cannot be installed on this
+device)` — the cached team profile simply did not list the new UDID. Rebuilding
+against the device itself is what triggers registration:
+
+    xcodebuild ... -destination 'platform=iOS,id=<hardware UDID>' \
+      -allowProvisioningUpdates build
+
+Check afterwards rather than guessing, since the profile is re-embedded silently:
+
+    security cms -D -i "<app>/embedded.mobileprovision" > /tmp/prov.plist
+    /usr/libexec/PlistBuddy -c "Print :ProvisionedDevices" /tmp/prov.plist
+
+Then `setup/push-clips-ios.sh --device "<name>" --config` fills the container
+(13 clips, ~990 MB, ~15 s over the wired link) and
+`devicectl device info files --domain-type appDataContainer --domain-identifier
+de.welt.midiftbridge.ios --username mobile --subdirectory Documents` confirms
+what arrived.
+
 ## Device roles (decided 2026-07-26)
 
 - **iPhone 15 Pro = master / show.** USB-C, single powered dock carrying

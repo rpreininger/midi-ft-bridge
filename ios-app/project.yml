@@ -96,10 +96,16 @@ targets:
         CFBundleShortVersionString: "0.1.0"
         CFBundleVersion: "1"
         UILaunchScreen: {}
+        # All four, upside-down included. On iPad an app that does not set
+        # UIRequiresFullScreen must support every orientation or the build
+        # warns and iPadOS can rotate into an unsupported one anyway; the
+        # rundown reads fine either way up, so allow it rather than opting
+        # out of multitasking.
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
           - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
         NSBluetoothAlwaysUsageDescription: "Send video frames to iPixel BLE LED panels."
         # Unicast UDP to 192.168.10.x trips the iOS 14+ local-network gate.
         # Without the grant the panels simply never receive frames - there is

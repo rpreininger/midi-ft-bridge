@@ -3,11 +3,13 @@
 Short version for doing at the panels. Background and reasoning live in
 `ios-port.md`.
 
-App is installed on both phones already (all 13 clips + real config.json,
-signed until 2027-07-25). Just tap the icon — it starts the engine itself.
+App is installed on both phones and on the iPad already (all 13 clips + real
+config.json). Just tap the icon — it starts the engine itself. The phone
+profiles are signed until 2027-07-25, the iPad's until 2027-08-18.
 
 - **iFön** = iPhone 15 Pro = show master (USB-C)
 - **Stratofon** = iPhone SE 2 = rehearsal (Lightning)
+- **iPad von Ralf** = iPad (A16), USB-C — added 2026-08-18, big-screen rundown
 
 ---
 
