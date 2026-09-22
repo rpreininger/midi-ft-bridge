@@ -353,8 +353,11 @@ std::string StatusServer::generateHTML() {
         }
 
         function noteName(n) {
+            // Octave numbering follows the Fantom's own key labels: its lowest
+            // key is C1 = note 36, so middle C (60) reads C3. Display only --
+            // the engine matches on raw note numbers.
             var names = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
-            return names[n % 12] + (Math.floor(n / 12) - 1);
+            return names[n % 12] + (Math.floor(n / 12) - 2);
         }
 
         function triggerTest(note) {

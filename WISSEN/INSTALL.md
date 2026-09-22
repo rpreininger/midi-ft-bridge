@@ -122,17 +122,21 @@ Edit `config.json` (or use the in-app **Edit Config…** editor):
 | `max_fps` | Per-panel FPS throttle (for BLE bandwidth) |
 | `web_port` | Status web UI port |
 
-### MIDI note reference (Roland convention, C4 = 60)
+### MIDI note reference (Fantom key labels: lowest key = C1 = 36)
+
+Octaves are named the way the Fantom labels its own keys, so middle C (60)
+is C3 here. The status page uses the same numbering; the engine itself only
+ever matches raw note numbers.
 
 | Note | MIDI # | Note | MIDI # |
 |------|--------|------|--------|
-| C2 | 36 | G2 | 43 |
-| C#2 | 37 | G#2 | 44 |
-| D2 | 38 | A2 | 45 |
-| D#2 | 39 | A#2 | 46 |
-| E2 | 40 | B2 | 47 |
-| F2 | 41 | C3 | 48 |
-| F#2 | 42 | C#3 | 49 |
+| C1 | 36 | G1 | 43 |
+| C#1 | 37 | G#1 | 44 |
+| D1 | 38 | A1 | 45 |
+| D#1 | 39 | A#1 | 46 |
+| E1 | 40 | B1 | 47 |
+| F1 | 41 | C2 | 48 |
+| F#1 | 42 | C#2 | 49 |
 
 ## 6. Testing
 
