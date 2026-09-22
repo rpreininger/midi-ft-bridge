@@ -104,7 +104,7 @@ struct AppConfig: Codable, Equatable {
     var webPort = 8080
     var audioOutput = ""     // macOS CoreAudio output device (name substring); "" = system default
     var debug = 0            // 0/1 (kept as Int to match the C++ parser)
-    // Panel shutdown over HTTP (the iOS path; see src/config.h). Carried in
+    // Panel shutdown over HTTP (both platforms now; see src/config.h). Carried in
     // the model purely so a save round-trips them -- a key with no property is
     // silently dropped by Codable, which is how these two went missing before.
     // Empty token = feature disabled, matching the C++ default.

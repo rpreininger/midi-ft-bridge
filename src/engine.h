@@ -104,7 +104,8 @@ public:
     // Refreshed each worker tick; safe to call from any thread.
     std::vector<PanelStatus> getPanelStatus() const;
 
-    // SSH `sudo shutdown now` to FT panels. Returns a per-panel result summary.
+    // `sudo shutdown now` on FT panels, over the HTTP endpoint where it is
+    // available and ssh otherwise. Returns a per-panel result summary.
     // shutdownPanels() targets every shutdownable FT panel; shutdownPanel()
     // targets one by name. Both no-op for ble/loopback panels.
     std::string shutdownPanels();

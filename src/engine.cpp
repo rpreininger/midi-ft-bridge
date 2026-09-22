@@ -108,37 +108,35 @@ void logLocalAddresses() {
 
 // Shut one panel down; returns a one-line "name (ip): <result>".
 //
-// macOS shells out to ssh (below). iOS cannot -- a sandboxed app may not spawn
-// processes and there is no ssh binary -- so it POSTs... GETs a small HTTP
-// endpoint each panel runs (setup/panel-shutdown-service.sh), which does the
-// `sudo shutdown now` locally. `port`/`token` come from config; macOS ignores
-// them.
-#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
+// Both platforms first try the small HTTP endpoint each panel runs
+// (setup/panel-shutdown-service.sh), which does the `sudo shutdown now`
+// locally; `port`/`token` come from config. iOS has nothing else -- a
+// sandboxed app may not spawn processes and there is no ssh binary. macOS
+// falls back to ssh whenever that endpoint is not usable (no token in config,
+// the service not installed on that panel, or the token rejected), so a panel
+// that never got the service still shuts down. The result line names the path
+// that worked, and on a fallback why the first one didn't.
 
-std::string panelShutdown(const PanelConfig& p, int port, const std::string& token) {
-    std::string result;
-    if (token.empty()) {
-        result = "FAILED — no shutdown_token in config";
-    } else {
-        int code = httpGetStatus(p.ip, port, "/shutdown?token=" + token, 3000);
-        result = (code == 200) ? "shutdown sent"
-               : (code == 403) ? "FAILED — token rejected"
-               : (code <  0)   ? "FAILED — no response (endpoint down?)"
-                               : ("FAILED — HTTP " + std::to_string(code));
-    }
-    std::string line = p.name + " (" + p.ip + "): " + result;
-    std::cerr << "Shutdown " << line << std::endl;
-    return line + "\n";
+// GETs /shutdown on the panel's endpoint. Returns the HTTP status code (-1 if
+// nothing answered) and fills `detail` with a reason for anything but 200.
+int httpShutdown(const PanelConfig& p, int port, const std::string& token,
+                 std::string& detail) {
+    const int code = httpGetStatus(p.ip, port, "/shutdown?token=" + token, 3000);
+    detail = (code == 200) ? "shutdown sent"
+           : (code == 403) ? "token rejected"
+           : (code <  0)   ? "no response (endpoint down?)"
+                           : ("HTTP " + std::to_string(code));
+    return code;
 }
 
-#else  // macOS / Linux: ssh.
+#if !(defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE)
 
 // Blocking (so we can report the real outcome) but bounded:
 //   - ConnectTimeout=3  -> give up quickly on an unreachable panel
 //   - BatchMode=yes     -> fail fast instead of hanging on a password prompt
 // The remote shutdown is backgrounded ('... &') so ssh returns 0 as soon as the
 // command is accepted, rather than exit 255 when the box drops the connection.
-std::string panelShutdown(const PanelConfig& p, int /*port*/, const std::string& /*token*/) {
+bool sshShutdown(const PanelConfig& p, std::string& detail) {
     std::string cmd = "ssh -o ConnectTimeout=3 -o BatchMode=yes "
                       "-o StrictHostKeyChecking=no root@" + p.ip +
                       " 'sudo shutdown now >/dev/null 2>&1 &' 2>&1";
@@ -155,15 +153,39 @@ std::string panelShutdown(const PanelConfig& p, int /*port*/, const std::string&
            (output.back() == '\n' || output.back() == '\r' || output.back() == ' '))
         output.pop_back();
 
-    std::string result = (exitCode == 0)
-        ? "shutdown sent"
-        : ("FAILED — " + (output.empty() ? ("ssh exit " + std::to_string(exitCode))
-                                          : output));
+    if (exitCode == 0) {
+        detail = "shutdown sent";
+        return true;
+    }
+    detail = output.empty() ? ("ssh exit " + std::to_string(exitCode)) : output;
+    return false;
+}
+
+#endif  // !TARGET_OS_IPHONE
+
+std::string panelShutdown(const PanelConfig& p, int port, const std::string& token) {
+    std::string httpWhy = "no shutdown_token in config";
+    const bool httpOK = !token.empty() &&
+                        httpShutdown(p, port, token, httpWhy) == 200;
+
+    std::string result;
+    if (httpOK) {
+        result = "shutdown sent (http)";
+    } else {
+#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
+        result = "FAILED — " + httpWhy;
+#else
+        std::string sshWhy;
+        result = sshShutdown(p, sshWhy)
+            ? "shutdown sent (ssh — http: " + httpWhy + ")"
+            : "FAILED — http: " + httpWhy + "; ssh: " + sshWhy;
+#endif
+    }
+
     std::string line = p.name + " (" + p.ip + "): " + result;
     std::cerr << "Shutdown " << line << std::endl;
     return line + "\n";
 }
-#endif  // TARGET_OS_IPHONE
 }  // namespace
 
 Engine::Engine() = default;

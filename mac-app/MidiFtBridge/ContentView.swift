@@ -31,7 +31,7 @@ struct ContentView: View {
             Button("Shut Down", role: .destructive) { performShutdown() }
             Button("Cancel", role: .cancel) { shutdownTarget = nil }
         } message: {
-            Text("This sends `sudo shutdown now` over SSH. Panels must be powered back on manually.")
+            Text("This runs `sudo shutdown now` on the panels (HTTP endpoint, ssh as fallback). Panels must be powered back on manually.")
         }
         .sheet(isPresented: $model.showConfigEditor) {
             ConfigEditorView(

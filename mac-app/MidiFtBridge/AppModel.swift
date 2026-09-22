@@ -344,14 +344,15 @@ final class AppModel: NSObject, ObservableObject {
     func nextClip()             { engine.skipToNextClip() }
     func previousClip()         { engine.skipToPreviousClip() }
 
-    /// SSH `sudo shutdown now` to all FT panels. Off the main thread: this
-    /// shells out to ssh once per panel and each can sit out its own timeout,
-    /// so on the main thread it beachballs for as long as the panels take.
+    /// `sudo shutdown now` on all FT panels (HTTP endpoint, ssh as fallback).
+    /// Off the main thread: each panel can sit out its own timeout -- and a
+    /// fallback pays both -- so on the main thread it beachballs for as long
+    /// as the panels take.
     func shutdownAllPanels() {
         onEngineQueue("shutdownPanels") { _ = self.engine.shutdownPanels() }
     }
 
-    /// SSH `sudo shutdown now` to a single FT panel by name.
+    /// `sudo shutdown now` on a single FT panel by name. Same path as above.
     func shutdownPanel(_ name: String) {
         onEngineQueue("shutdownPanel(\(name))") { _ = self.engine.shutdownPanelNamed(name) }
     }

@@ -39,11 +39,13 @@ struct Config {
     int video_width = 256;
     int video_height = 128;
     int web_port = 8080;
-    // Panel shutdown over HTTP (the iOS path — a sandboxed app cannot spawn
-    // ssh). Each panel runs a small endpoint (setup/panel-shutdown-service.sh):
+    // Panel shutdown over HTTP. Each panel runs a small endpoint
+    // (setup/panel-shutdown-service.sh):
     //   GET http://<panel>:<shutdown_port>/shutdown?token=<shutdown_token>
-    // Empty token = feature disabled on iOS. macOS still uses ssh and ignores
-    // both fields.
+    // Both platforms try this first; iOS has no other path (a sandboxed app
+    // cannot spawn ssh), macOS falls back to ssh. Empty token = HTTP disabled,
+    // which on iOS disables shutdown entirely. Kept out of the repo's
+    // config.json on purpose -- it is a shared secret.
     int shutdown_port = 8081;
     std::string shutdown_token;
     int midi_channel = -1;  // MIDI channel filter (0-15, -1 = any). Channel 10 = 9 (0-indexed)
