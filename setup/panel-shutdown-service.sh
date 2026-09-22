@@ -25,11 +25,44 @@ set -e
 PORT="${PORT:-8081}"
 RUN_USER=stratojets
 
+# --- Sealed-panel guard ----------------------------------------------------
+# All three panels are sealed with OverlayFS (`overlayroot=tmpfs` in
+# /boot/firmware/cmdline.txt): / is an overlay whose upper layer is tmpfs, so
+# every file below would be written to RAM. The install would run clean, the
+# self-check would go green, and the service would be gone after the next
+# power cycle -- worse than not installing, because the panel looks done.
+# Refuse instead, and print the unseal/re-seal dance.
+ROOT_FS=$(findmnt -no FSTYPE / 2>/dev/null || true)
+[ -n "$ROOT_FS" ] || \
+    ROOT_FS=$(awk '$2 == "/" { print $3; exit }' /proc/mounts 2>/dev/null || true)
+if [ "$ROOT_FS" = "overlay" ] && [ -z "${ALLOW_OVERLAY:-}" ]; then
+    cat >&2 <<'EOS'
+ERROR: / is an OverlayFS -- this panel is sealed. Anything installed now lives
+       in RAM and is discarded at the next reboot.
+
+Unseal, install, re-seal (as root on the panel; both flag changes need a
+reboot to take effect, and /boot/firmware is mounted ro by fstab):
+
+    mount -o remount,rw /boot/firmware
+    sed -i 's/overlayroot=tmpfs //' /boot/firmware/cmdline.txt
+    reboot
+    # findmnt -no FSTYPE /  ->  ext4 ... then re-run this script, and:
+    mount -o remount,rw /boot/firmware
+    sed -i 's/^/overlayroot=tmpfs /' /boot/firmware/cmdline.txt
+    reboot
+    # findmnt -no FSTYPE /  ->  overlay
+
+Details and gotchas: WISSEN/panel-seal-checklist.md, "Seal with OverlayFS".
+ALLOW_OVERLAY=1 installs anyway -- RAM-only, for a throwaway test.
+EOS
+    exit 1
+fi
+
 SVC=/usr/local/sbin/panel-shutdown-service.py
 UNIT=/etc/systemd/system/panel-shutdown.service
 ENVF=/etc/default/panel-shutdown
 
-echo "[1/5] Writing $SVC ..."
+echo "[1/6] Writing $SVC ..."
 cat > "$SVC" <<'EOS'
 #!/usr/bin/env python3
 # Minimal, single-purpose HTTP shutdown endpoint. No dependencies beyond
@@ -74,7 +107,7 @@ if __name__ == "__main__":
 EOS
 chmod 0755 "$SVC"
 
-echo "[2/5] Writing $ENVF (token, mode 0640 root:$RUN_USER) ..."
+echo "[2/6] Writing $ENVF (token, mode 0640 root:$RUN_USER) ..."
 cat > "$ENVF" <<EOS
 SHUTDOWN_TOKEN=$TOKEN
 SHUTDOWN_PORT=$PORT

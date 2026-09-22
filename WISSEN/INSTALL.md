@@ -181,6 +181,8 @@ worked, or why both failed.
   `ssh root@192.168.10.21 "TOKEN=<token> sh -s" < setup/panel-shutdown-service.sh`,
   then put the same token in `shutdown_token` in the Mac's config. Check it
   with the app's ping button, or `curl http://192.168.10.21:8081/ping`.
+  The panels are sealed with OverlayFS, so the script refuses to install into
+  RAM and prints the unseal/re-seal steps — see `panel-seal-checklist.md`.
 - **ssh:** needs the Mac's root key on the panel — see
   `panel-seal-checklist.md`. This is the only path when no token is set, and
   the only one iOS does *not* have.
