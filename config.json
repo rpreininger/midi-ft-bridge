@@ -119,6 +119,7 @@
       "type" : "ble"
     }
   ],
+  "stop_note" : 51,
   "video_height" : 128,
   "video_width" : 288,
   "web_port" : 8080
