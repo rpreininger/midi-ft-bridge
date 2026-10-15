@@ -106,3 +106,7 @@ depend on it.)
 
 See `INSTALL.md` for the full `config.json` reference, panel table, and MIDI
 note mapping.
+
+## ESP32 Port
+
+Feasibility of replacing the Mac with an ESP32-P4 (2026-10-15): see `ESP32-PORT.md`.
