@@ -42,7 +42,9 @@ struct HelpView: View {
                         shortcut("↑ / ↓", "Select previous / next mapping")
                         shortcut("Return", "Trigger the selected mapping")
                         shortcut("Space", "Pause / resume the current clip")
-                        shortcut("Esc", "Stop the current clip")
+                        shortcut("Esc", "Stop the current clip (one screen: leave the beamer)")
+                        shortcut("B", "Beamer: fullscreen, hard pixels, on the second screen")
+                        shortcut("F", "Beamer: full height / exact whole-number blocks")
                         Text("Shortcuts are ignored while typing in a text field.")
                             .font(.caption).foregroundStyle(.secondary)
                     }

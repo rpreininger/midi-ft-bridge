@@ -111,6 +111,12 @@ struct ContentView: View {
                         panelTile(panel: panel, scale: scale, baseOffset: offset)
                     }
                 }
+            } else if model.running, let img = model.previewImage {
+                // No panels (beamer config): show the canvas itself.
+                Image(nsImage: img)
+                    .resizable()
+                    .interpolation(.none)
+                    .aspectRatio(contentMode: .fit)
             } else {
                 Text(model.running ? "loading config…" : "Engine stopped")
                     .foregroundStyle(.gray)
@@ -265,6 +271,9 @@ struct ContentView: View {
                 }
                 .tint(model.autoPlay ? .orange : nil)
                 .disabled(!model.running || model.mappings.isEmpty)
+                Button(model.beamerOn ? "Beamer Off" : "Beamer") { model.toggleBeamer() }
+                    .tint(model.beamerOn ? .orange : nil)
+                    .help("Fullscreen output on the second screen (B, F toggles full height)")
                 Spacer()
                 Text("\(model.mappings.count) mappings")
                     .foregroundStyle(.secondary)

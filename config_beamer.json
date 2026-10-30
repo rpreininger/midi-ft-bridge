@@ -1,0 +1,85 @@
+{
+  "audio_output": "",
+  "clips_dir": "./clips",
+  "debug": 1,
+  "default_fps": 25,
+  "mappings": [
+    {
+      "clip": "beamer-1024/Intro.mp4",
+      "note": 36,
+      "panel": "all"
+    },
+    {
+      "clip": "beamer-1024/Fly.mp4",
+      "note": 37,
+      "panel": "all"
+    },
+    {
+      "clip": "beamer-1024/Moon.mp4",
+      "note": 38,
+      "panel": "all"
+    },
+    {
+      "clip": "beamer-1024/Pixel.mp4",
+      "note": 39,
+      "panel": "all"
+    },
+    {
+      "clip": "beamer-1024/OYM.mp4",
+      "note": 40,
+      "panel": "all"
+    },
+    {
+      "clip": "beamer-1024/Tennis.mp4",
+      "note": 41,
+      "panel": "all"
+    },
+    {
+      "clip": "beamer-1024/Neutrino.mp4",
+      "note": 42,
+      "panel": "all"
+    },
+    {
+      "clip": "beamer-1024/ZX89.mp4",
+      "note": 43,
+      "panel": "all"
+    },
+    {
+      "clip": "beamer-1024/Magneto.mp4",
+      "note": 44,
+      "panel": "all"
+    },
+    {
+      "clip": "beamer-1024/Jiffy.mp4",
+      "note": 45,
+      "panel": "all"
+    },
+    {
+      "clip": "beamer-1024/Black.mp4",
+      "note": 46,
+      "panel": "all"
+    },
+    {
+      "clip": "beamer-1024/Shrink.mp4",
+      "note": 47,
+      "panel": "all"
+    },
+    {
+      "clip": "beamer-1024/Shin.mp4",
+      "note": 48,
+      "panel": "all"
+    },
+    {
+      "clip": "beamer-1024/Axel.mp4",
+      "note": 49,
+      "panel": "all"
+    }
+  ],
+  "midi_channel": 9,
+  "midi_device": "",
+  "panels": [],
+  "stop_note": 51,
+  "video_height": 1024,
+  "video_width": 1024,
+  "web_port": 8080
+}

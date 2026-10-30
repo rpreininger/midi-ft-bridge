@@ -67,6 +67,10 @@ final class AppModel: NSObject, ObservableObject {
     @Published var panelImages: [String: NSImage] = [:]
     @Published var lastError: String?
 
+    /// Fullscreen projector output, shown alongside whatever the panels get.
+    @Published var beamerOn = false
+    private let beamer = BeamerOutput()
+
     // In-app config editor: a working copy is held here while the sheet is up.
     @Published var showConfigEditor = false
     @Published var editingConfig = AppConfig()
@@ -113,6 +117,7 @@ final class AppModel: NSObject, ObservableObject {
     override init() {
         super.init()
         engine.delegate = self
+        beamer.onClosedByItself = { [weak self] in self?.beamerOn = false }
         // Poll engine state so the UI catches transitions the bridge can't
         // signal directly (e.g. a clip auto-finishing inside the worker).
         statusTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
@@ -344,6 +349,17 @@ final class AppModel: NSObject, ObservableObject {
     func nextClip()             { engine.skipToNextClip() }
     func previousClip()         { engine.skipToPreviousClip() }
 
+    // MARK: - Beamer
+
+    func toggleBeamer() {
+        if beamer.isShowing {
+            beamer.hide()
+        } else {
+            beamer.show()
+        }
+        beamerOn = beamer.isShowing
+    }
+
     /// `sudo shutdown now` on all FT panels (HTTP endpoint, ssh as fallback).
     /// Off the main thread: each panel can sit out its own timeout -- and a
     /// fallback pays both -- so on the main thread it beachballs for as long
@@ -399,7 +415,18 @@ final class AppModel: NSObject, ObservableObject {
             if running, !activeClipName.isEmpty { togglePause() }
             return true   // always consume to avoid system beep
         case "\u{1B}": // Escape
-            if running, !activeClipName.isEmpty { stopClip() }
+            // With one screen the beamer hides the controls: Esc gets them back.
+            if beamer.coversControlWindow {
+                toggleBeamer()
+            } else if running, !activeClipName.isEmpty {
+                stopClip()
+            }
+            return true
+        case "b":
+            toggleBeamer()
+            return true
+        case "f":
+            beamer.toggleFillHeight()
             return true
         default: idx = nil
         }
@@ -426,6 +453,9 @@ final class AppModel: NSObject, ObservableObject {
         if running != r { running = r }
         let n = engine.activeClipName
         if activeClipName != n { activeClipName = n }
+        // The panels get black from the engine when a clip ends; the beamer
+        // would otherwise freeze on the last frame.
+        if n.isEmpty { beamer.clear() }
         let m = engine.midiDeviceName
         if midiDeviceName != m { midiDeviceName = m }
         let p = engine.isClipPaused()
@@ -484,6 +514,14 @@ extension AppModel: MFBEngineDelegate {
             }
         }
         panelImages = tiles
+
+        // Beamer: the top-left square, i.e. A_bigpanel on the 288x128 canvas.
+        if beamerOn {
+            let side = min(width, height)
+            if let square = canvas.cropping(to: CGRect(x: 0, y: 0, width: side, height: side)) {
+                beamer.display(square)
+            }
+        }
     }
 
     func engineStateDidChange(_ engine: MFBEngine) {

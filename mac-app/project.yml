@@ -83,8 +83,8 @@ targets:
         NSBluetoothAlwaysUsageDescription: "Send video frames to iPixel BLE LED panels."
         # xcodegen regenerates Info.plist from this block, so the version must
         # live here (editing Info.plist directly gets overwritten on generate).
-        CFBundleShortVersionString: "1.0.2"
-        CFBundleVersion: "3"
+        CFBundleShortVersionString: "1.0.5"
+        CFBundleVersion: "6"
 
 schemes:
   MidiFtBridge:
