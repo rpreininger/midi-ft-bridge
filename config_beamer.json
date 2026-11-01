@@ -5,7 +5,7 @@
   "default_fps": 25,
   "mappings": [
     {
-      "clip": "beamer-1024/Intro.mp4",
+      "clip": "720x720/INTRO.mov",
       "note": 36,
       "panel": "all"
     },
@@ -15,7 +15,7 @@
       "panel": "all"
     },
     {
-      "clip": "beamer-1024/Moon.mp4",
+      "clip": "720x720/MOONPATROL.mov",
       "note": 38,
       "panel": "all"
     },
@@ -55,7 +55,7 @@
       "panel": "all"
     },
     {
-      "clip": "beamer-1024/Black.mp4",
+      "clip": "720x720/BLACK NITE.mov",
       "note": 46,
       "panel": "all"
     },
@@ -70,7 +70,7 @@
       "panel": "all"
     },
     {
-      "clip": "beamer-1024/Axel.mp4",
+      "clip": "720x720/AXEL.mov",
       "note": 49,
       "panel": "all"
     }
