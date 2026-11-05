@@ -133,8 +133,10 @@ static void open_device(uint8_t addr)
         str_desc(info.str_desc_product, prod, sizeof prod);
         str_desc(info.str_desc_manufacturer, manu, sizeof manu);
     }
-    ESP_LOGI(TAG, "USB device %04x:%04x '%s' / '%s' (class 0x%02x, %s speed)", dd->idVendor, dd->idProduct, manu,
-             prod, dd->bDeviceClass, info.speed == USB_SPEED_HIGH ? "high" : info.speed == USB_SPEED_FULL ? "full" : "low");
+    ESP_LOGI(TAG, "USB device %04x:%04x '%s' / '%s' (class 0x%02x, %s speed, USB %x.%02x, %u configuration(s), active %u)",
+             dd->idVendor, dd->idProduct, manu, prod, dd->bDeviceClass,
+             info.speed == USB_SPEED_HIGH ? "high" : info.speed == USB_SPEED_FULL ? "full" : "low", dd->bcdUSB >> 8,
+             dd->bcdUSB & 0xFF, dd->bNumConfigurations, info.bConfigurationValue);
     const usb_config_desc_t *cfg;
     usb_host_get_active_config_descriptor(dev, &cfg);
     uint8_t iface, ep;

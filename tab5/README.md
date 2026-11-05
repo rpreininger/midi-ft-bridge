@@ -56,6 +56,10 @@ Audio out:
   handling; then the AG06 becomes the master clock. Fantom + AG06 together
   need a USB hub on the USB-A port (hub support is enabled), and the MIDI
   driver must then pick the Fantom (the AG06 also has a MIDI interface).
+- Not through the Fantom: in GENERIC mode it enumerates as USB 1.1
+  full-speed with one configuration holding only Audio Control (no
+  endpoints) + MIDI Streaming, so there is no class-compliant audio path;
+  VENDOR mode is Roland's proprietary driver protocol.
 - Not the USB-C port: full-speed only, shares the PHY with flashing/console,
   and it is unknown whether it can source 5 V.
 
