@@ -17,6 +17,7 @@ esp_err_t board_sd_mount(void);           // 4-bit SDMMC, 40 MHz, FAT
 sdmmc_card_t *board_sd_card(void);
 esp_err_t board_audio_init(uint32_t rate); // I2S1 TX stereo s16 + ES8388
 esp_err_t board_audio_set_volume(int vol); // 0..100
+int board_audio_get_volume(void);          // -1 before audio init
 
 // Blocking write of interleaved s16 stereo PCM; returns when DMA took it.
 esp_err_t board_audio_write(const void *pcm, size_t bytes);

@@ -5,49 +5,72 @@ Fantom in (USB-A host port), plays the 288x128@25 clips from microSD, audio
 out via its codec, FT/UDP streams to the three panels, possibly acting as the
 Wi-Fi hotspot itself.
 
-## Status (2026-11-05, evening)
+## Status (2026-11-05, late)
 
-Hardware: ESP32-P4 rev v1.3, 16 MB flash, 32 MB PSRAM (200 MHz), 360 MHz.
-Factory firmware backed up on the Mac: `~/esp/tab5-backup/tab5-factory-16MB.bin`.
+**The Tab5 does the MacBook's job** (branch `tab5-playout`, `firmware/`):
+Fantom pad (USB-MIDI) -> clip from SD with audio (audio = master clock) ->
+FT/UDP to the three panels at 25 fps, as its own Wi-Fi hotspot, with a live
+preview on its display. Not yet tested with the real panels.
 
-Measured on the device (`firmware/`, bench in `main/main.c`):
-- Decode, worst-case content (Neutrino excerpt from flash): 5.1 ms avg,
-  5.7 ms worst per frame of a 40 ms budget.
-- Real time with audio as master clock (ES8388, I2S 48 kHz): 24.8 fps,
-  0 late frames, audio clock 48.01 kHz.
-- SD (32 GB SDHC, 4-bit, 40 MHz): raw 18 MB/s, POSIX read() 16.5 MB/s;
-  need is ~1.5 MB/s. All 14 clips are on the card in `/ftc`.
-- Decoding from SD through stdio FILE was 6-11 ms/frame, worst 20 ms:
-  newlib fread is pathological on the FAT VFS (unbuffered: 80 KB/s; every
-  fseek drops the buffer). **ftc.c was just switched to its own read()-based
-  reader** (verified bit-exact on the Mac, builds for the P4, NOT yet run
-  on the device). Next: flash + rerun the bench.
+Hardware: ESP32-P4 rev v1.3, 16 MB flash, 32 MB PSRAM (200 MHz), 360 MHz;
+display ST7121 (touch fw 1 @ I2C 0x55); Wi-Fi/BLE via ESP32-C6 (esp_hosted
+1.4.0 over SDIO, C6 firmware V1.4.1). Factory firmware backup on the Mac:
+`~/esp/tab5-backup/tab5-factory-16MB.bin`.
+
+Measured on the device:
+- Decode from SD, all 14 clips: 0.3-6.5 ms avg, worst 12 ms (budget 40 ms).
+- SD (32 GB SDHC, 4-bit 40 MHz): 16.5 MB/s with read() into DMA-capable
+  internal RAM. Never read SD through stdio or into PSRAM (80 KB/s resp.
+  per-sector bounce copies).
+- Full load (playback + audio + preview + FT streams of all 3 panels,
+  19.7 Mbit/s, to an iPhone on the hotspot): 25.0 fps, 0 lost tiles, 0 late
+  frames. Sending costs ~20-23 ms/frame on its own task (core 1).
+- Panels absent: a panel that does not answer ARP is skipped per frame
+  (0.9 ms instead of stalling everything).
+- Fantom (0582:0221, class-compliant MIDI, pads on channel 10): note to
+  clip start 15-45 ms.
+
+Behaviour (`main/main.c`, `main/player.c`):
+- `/sdcard/config.json` in the Mac app's schema (+ `"tab5"` block, see
+  `main/config.h`); without it: notes 36-49 -> Intro..Axel, stop note 51,
+  hotspot `FT-TAB5` / `flaschentaschen`, 192.168.10.1, and the streams are
+  mirrored to the first hotspot client (test mode).
+- Clips: `/sdcard/ftc/<Name>.ftc` (transcode with `tools/ftc_encode.py`).
+- Volume: web page `http://192.168.10.1/`, Fantom CC7, or config (default 20).
+- `/sdcard/bench` -> run the decode/SD benchmark instead;
+  `/sdcard/streamtest` -> the 60 s streaming load test.
+
+Audio out:
+- Now: Tab5 headphone jack (ES8388) analog into the AG06.
+- USB audio to the AG06 is possible later on the **USB-A** port: AG06 =
+  Yamaha 0499:1757 behind its own internal hub, **UAC 2.0**, stereo 24-bit in
+  32-bit slots, async isochronous OUT (ep 0x01) with feedback (ep 0x81).
+  Needs a custom UAC2 driver (IDF's usb_host_uac is UAC1 only) incl. feedback
+  handling; then the AG06 becomes the master clock. Fantom + AG06 together
+  need a USB hub on the USB-A port (hub support is enabled), and the MIDI
+  driver must then pick the Fantom (the AG06 also has a MIDI interface).
+- Not the USB-C port: full-speed only, shares the PHY with flashing/console,
+  and it is unknown whether it can source 5 V.
 
 Flashing notes:
 - Download mode: hold reset ~2 s until the green LED blinks fast, release.
-  Only worked on a different USB-C port of the Mac (`/dev/cu.usbmodem3101`).
-  After that, flash with our firmware works via auto-reset (it keeps the
-  USB-Serial-JTAG console).
-- After a long-press the strap stays latched: USB resets boot into
-  download mode until one SHORT press of the reset button.
-- Opening the port with pyserial defaults (DTR/RTS asserted) resets the
-  chip into download mode; open with dtr=rts=False.
-- Bench volume is 20/100 (user cannot turn it down on the device).
+  Only worked on one USB-C port of the Mac (`/dev/cu.usbmodem3101`). Once our
+  firmware runs, `idf.py flash` works via auto-reset.
+- After a long-press the strap stays latched: USB resets boot into download
+  mode until one SHORT press of the reset button.
+- Open the console with dtr=rts=False (pyserial defaults reset into
+  download mode).
 
 Next steps:
-1. Rerun bench with the new reader; full 30 s real time from SD.
-2. Wi-Fi via the ESP32-C6 (esp_hosted 1.4.0 / esp_wifi_remote 0.8.5 like
-   M5's demo; SDIO pins CLK12 CMD13 D0-D3 11,10,9,8, reset GPIO15).
-   Try SoftAP first (no credentials), measure FT/UDP throughput (~20 Mbit/s
-   for all panels at 25 fps, 3-row tiles like `src/ft_sender.cpp`). Gig
-   router is the Cudy later. Also: clip upload over Wi-Fi.
-3. USB-MIDI host on the USB-A port (Fantom).
-4. Audio over USB to the Fantom: probably not (IDF UAC host = UAC1);
-   headphone jack is the safe path.
-5. config.json on SD (mappings, panels, volume), display preview.
+1. Status on the display (clip, panels, MIDI, volume, Wi-Fi clients).
+2. Test with the real panels (hotspot vs. joining the Cudy as STA).
+3. Web page: clip upload over Wi-Fi, panel shutdown, status.
+4. Stage hardening: autostart, power loss, MIDI hot-plug.
+5. Optional: UAC2 driver for the AG06; BLE panel via the C6.
 
 ## Tooling
 
-- ESP-IDF v5.5.1 (M5's demo recommends v5.4.2), target `esp32p4`.
+- ESP-IDF v5.5.1 in `~/esp/esp-idf-v5.5` (M5's demo uses v5.4.2), target `esp32p4`:
+  `. ~/esp/esp-idf-v5.5/export.sh && cd firmware && idf.py build flash`
 - Transcoder: `python3 -m venv .venv && .venv/bin/pip install numpy lz4`,
   needs ffmpeg on PATH (works on Windows too).

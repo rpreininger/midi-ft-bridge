@@ -12,3 +12,15 @@ bool player_note(uint8_t note);
 void player_stop(void);
 // Optional: redirect all panel streams to one IP (test receiver), NULL = off.
 void player_set_test_target(const char *ip);
+
+typedef struct {
+    bool playing;
+    char clip[48];          // clip name without path/extension, "" if none
+    uint32_t frame, frames; // position / length
+    uint16_t fps;
+    int npanels;
+    bool panel_ok[CFG_MAX_PANELS];  // last frame got through (ARP answered, no send error)
+    bool mirrored;          // streams go to a test client instead of the panels
+} player_status_t;
+
+void player_get_status(player_status_t *st);

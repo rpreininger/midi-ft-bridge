@@ -42,3 +42,8 @@ CONFIG_ESP_WIFI_TX_BUFFER_TYPE=1
 CONFIG_ESP_WIFI_DYNAMIC_TX_BUFFER_NUM=32
 # lwIP: room for a full panel frame burst (~84 x 1.2 KB tiles)
 CONFIG_LWIP_UDP_RECVMBOX_SIZE=16
+# External USB hubs (AG06 / Fantom + AG06 on one port)
+CONFIG_USB_HOST_HUBS_SUPPORTED=y
+CONFIG_USB_HOST_HUB_MULTI_LEVEL=y
+# audio interfaces have big configuration descriptors
+CONFIG_USB_HOST_CONTROL_TRANSFER_MAX_SIZE=2048

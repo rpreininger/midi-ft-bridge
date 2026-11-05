@@ -17,6 +17,7 @@
 #include "esp_ldo_regulator.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "font.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
@@ -39,6 +40,7 @@ static const uint8_t *volatile s_pending;
 static uint8_t *s_copy;
 static TaskHandle_t s_task;
 static SemaphoreHandle_t s_draw_done;
+static SemaphoreHandle_t s_draw_lock;  // one task drawing at a time (preview vs. status)
 
 // draw_bitmap with use_dma2d is asynchronous; one transfer at a time.
 static bool IRAM_ATTR on_trans_done(esp_lcd_panel_handle_t panel, esp_lcd_dpi_panel_event_data_t *e, void *ctx)
@@ -86,6 +88,16 @@ static bool is_st7121(i2c_master_bus_handle_t bus)
     return e == ESP_OK && fw == 1;
 }
 
+// Draw and wait until the DMA has read px (callers reuse their buffers).
+static void draw_sync(int x0, int y0, int x1, int y1, const void *px)
+{
+    xSemaphoreTake(s_draw_lock, portMAX_DELAY);
+    draw(x0, y0, x1, y1, px);
+    xSemaphoreTake(s_draw_done, portMAX_DELAY);
+    xSemaphoreGive(s_draw_done);
+    xSemaphoreGive(s_draw_lock);
+}
+
 static void preview_task(void *arg)
 {
     for (;;) {
@@ -105,10 +117,7 @@ static void preview_task(void *arg)
             }
             for (int r = 1; r < SCALE; r++) memcpy(row0 + (size_t)r * s_pw, row0, (size_t)s_pw * 2);
         }
-        draw(s_px, s_py, s_px + s_pw, s_py + s_ph, s_stage);
-        // the staging buffer is read by DMA: wait before overwriting it
-        xSemaphoreTake(s_draw_done, portMAX_DELAY);
-        xSemaphoreGive(s_draw_done);
+        draw_sync(s_px, s_py, s_px + s_pw, s_py + s_ph, s_stage);
     }
 }
 
@@ -180,6 +189,7 @@ esp_err_t display_init(i2c_master_bus_handle_t bus, int canvas_w, int canvas_h)
     ESP_ERROR_CHECK(esp_lcd_panel_reset(s_panel));
     ESP_ERROR_CHECK(esp_lcd_panel_init(s_panel));
     ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(s_panel, true));
+    s_draw_lock = xSemaphoreCreateMutex();
     s_draw_done = xSemaphoreCreateBinary();
     xSemaphoreGive(s_draw_done);
     esp_lcd_dpi_panel_event_callbacks_t cbs = {.on_color_trans_done = on_trans_done};
@@ -210,4 +220,70 @@ void display_preview(const uint8_t *rgb)
     else memset(s_copy, 0, (size_t)s_cw * s_ch * 3);
     s_pending = s_copy;
     xTaskNotifyGive(s_task);
+}
+
+// ---- status bands --------------------------------------------------------
+// Landscape screen is 1280 x 720; the preview takes landscape rows
+// s_px .. s_px + s_pw. Band 0 is above it, band 1 below. Landscape (lx, ly)
+// maps to portrait (x = ly, y = LCD_H - 1 - lx).
+
+#define LAND_W LCD_H
+static uint16_t *s_land, *s_port;
+
+static uint16_t rgb565(uint32_t rgb)
+{
+    return (uint16_t)(((rgb >> 8) & 0xF800) | ((rgb >> 5) & 0x07E0) | ((rgb >> 3) & 0x001F));
+}
+
+static int text_width(const char *t)
+{
+    int w = 0;
+    for (; *t; t++) {
+        unsigned c = (unsigned char)*t;
+        if (c < 32 || c > 126) c = '?';
+        w += FONT_STATUS.glyphs[c - 32].width;
+    }
+    return w;
+}
+
+static void blit_text(int x, const char *t, uint32_t color)
+{
+    const int h = FONT_STATUS.height;
+    int fr = (color >> 16) & 0xFF, fg = (color >> 8) & 0xFF, fb = color & 0xFF;
+    for (; *t; t++) {
+        unsigned c = (unsigned char)*t;
+        if (c < 32 || c > 126) c = '?';
+        const font_glyph_t *g = &FONT_STATUS.glyphs[c - 32];
+        const uint8_t *a = FONT_STATUS.alpha + g->offset;
+        for (int y = 0; y < h; y++)
+            for (int gx = 0; gx < g->width; gx++) {
+                int lx = x + gx;
+                uint8_t al = a[y * g->width + gx];
+                if (!al || lx < 0 || lx >= LAND_W) continue;
+                // background is black: coverage just scales the colour
+                s_land[y * LAND_W + lx] = rgb565(((fr * al / 255) << 16) | ((fg * al / 255) << 8) | (fb * al / 255));
+            }
+        x += g->width;
+    }
+}
+
+void display_status(int band, const display_span_t *spans, int n)
+{
+    if (!s_task || band < 0 || band > 1) return;
+    const int h = FONT_STATUS.height;
+    if (!s_land) {
+        s_land = heap_caps_malloc((size_t)LAND_W * h * 2, MALLOC_CAP_SPIRAM);
+        s_port = heap_caps_malloc((size_t)LAND_W * h * 2, MALLOC_CAP_SPIRAM);
+    }
+    memset(s_land, 0, (size_t)LAND_W * h * 2);
+    for (int i = 0; i < n; i++) {
+        int x = spans[i].x;
+        if (x < 0) x = LAND_W + x - text_width(spans[i].text);  // negative: right-aligned
+        blit_text(x, spans[i].text, spans[i].color);
+    }
+    // band position in landscape rows (= portrait x)
+    int ly0 = band == 0 ? (s_px - h) / 2 : s_px + s_pw + (LCD_W - (s_px + s_pw) - h) / 2;
+    for (int lx = 0; lx < LAND_W; lx++)
+        for (int y = 0; y < h; y++) s_port[(size_t)(LCD_H - 1 - lx) * h + y] = s_land[y * LAND_W + lx];
+    draw_sync(ly0, 0, ly0 + h, LCD_H, s_port);
 }

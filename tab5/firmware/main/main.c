@@ -22,6 +22,7 @@
 #include "midi_host.h"
 #include "player.h"
 #include "display.h"
+#include "esp_timer.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -240,6 +241,58 @@ static void run_bench(void)
 }
 
 static config_t s_cfg;
+
+#define COL_TXT 0xE0E0E0
+#define COL_DIM 0x808080
+#define COL_OK 0x40D060
+#define COL_BAD 0xE04040
+#define COL_ACC 0xF0C040
+
+// Top band: what plays and where. Bottom band: links (MIDI, Wi-Fi, panels).
+static void show_status(const config_t *cfg)
+{
+    player_status_t st;
+    player_get_status(&st);
+    char a[96], b[48], v[24];
+    if (st.playing) {
+        unsigned p = st.frame / (st.fps ? st.fps : 25), t = st.frames / (st.fps ? st.fps : 25);
+        snprintf(a, sizeof a, "> %s", st.clip);
+        snprintf(b, sizeof b, "%u:%02u / %u:%02u", p / 60, p % 60, t / 60, t % 60);
+    } else {
+        snprintf(a, sizeof a, "gestoppt");
+        b[0] = 0;
+    }
+    snprintf(v, sizeof v, "Vol %d", board_audio_get_volume());
+    display_span_t top[] = {
+        {64, a, st.playing ? COL_ACC : COL_DIM},
+        {520, b, COL_TXT},
+        {-64, v, COL_TXT},
+    };
+    display_status(0, top, 3);
+
+    char wifi[64];
+    if (cfg->net.ap) snprintf(wifi, sizeof wifi, "WLAN %s: %d Client%s", cfg->net.ssid, net_ap_clients(),
+                              net_ap_clients() == 1 ? "" : "s");
+    else snprintf(wifi, sizeof wifi, "WLAN %s: %s", cfg->net.ssid, net_ip());
+    display_span_t bot[3 + CFG_MAX_PANELS];
+    int n = 0;
+    bot[n++] = (display_span_t){64, midi_host_connected() ? "MIDI OK" : "MIDI --",
+                                midi_host_connected() ? COL_OK : COL_BAD};
+    bot[n++] = (display_span_t){260, wifi, COL_TXT};
+    static char pn[CFG_MAX_PANELS][24];
+    int x = -64 - 0;
+    // panels right-aligned, last panel at the right edge
+    int right = 64;
+    for (int i = st.npanels - 1; i >= 0; i--) {
+        snprintf(pn[i], sizeof pn[i], "%c", cfg->panels[i].name[0] ? cfg->panels[i].name[0] : '1' + i);
+        bot[n++] = (display_span_t){-right, pn[i], st.mirrored ? COL_ACC : st.panel_ok[i] ? COL_OK : COL_BAD};
+        right += 40;
+    }
+    (void)x;
+    if (st.mirrored) bot[n++] = (display_span_t){-(right + 10), "Test:", COL_ACC};
+    else bot[n++] = (display_span_t){-(right + 10), "Panels:", COL_TXT};
+    display_status(1, bot, n);
+}
 static bool s_have_config;
 
 void app_main(void)
@@ -319,9 +372,15 @@ void app_main(void)
     // joins - lets a phone stand in as the load for testing.
     bool mirror = !s_have_config;
     const char *mirrored = NULL;
+    int64_t next_status = 0;
     for (;;) {
+        int64_t now = esp_timer_get_time();
+        if (now >= next_status) {
+            next_status = now + 500000;
+            show_status(&s_cfg);
+        }
         midi_msg_t m;
-        if (midi_host_get(&m, 200)) {
+        if (midi_host_get(&m, 100)) {
             uint8_t type = m.status & 0xF0, ch = m.status & 0x0F;
             ESP_LOGI(TAG, "MIDI cable %u ch %u: %02x %u %u", m.cable, ch + 1, m.status, m.d1, m.d2);
             if (s_cfg.midi_channel >= 0 && ch != s_cfg.midi_channel) continue;

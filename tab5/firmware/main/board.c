@@ -52,6 +52,7 @@ static i2c_master_dev_handle_t s_io1, s_io2;
 static sdmmc_card_t *s_card;
 static i2s_chan_handle_t s_tx;
 static esp_codec_dev_handle_t s_spk;
+static int s_volume = -1;
 
 static void io_wr(i2c_master_dev_handle_t d, uint8_t reg, uint8_t val)
 {
@@ -201,6 +202,7 @@ esp_err_t board_audio_init(uint32_t rate)
 esp_err_t board_audio_set_volume(int vol)
 {
     if (!s_spk) return ESP_ERR_INVALID_STATE;
+    s_volume = vol;
     esp_codec_dev_set_out_mute(s_spk, vol <= 0);
     return esp_codec_dev_set_out_vol(s_spk, vol) == ESP_CODEC_DEV_OK ? ESP_OK : ESP_FAIL;
 }
@@ -210,3 +212,5 @@ esp_err_t board_audio_write(const void *pcm, size_t bytes)
     size_t done = 0;
     return i2s_channel_write(s_tx, pcm, bytes, &done, portMAX_DELAY);
 }
+
+int board_audio_get_volume(void) { return s_volume; }

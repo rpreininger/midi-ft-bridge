@@ -1,5 +1,6 @@
 #include "midi_host.h"
 
+#include <stdio.h>
 #include <string.h>
 
 #include "esp_log.h"
@@ -16,7 +17,7 @@ static const char *TAG = "midi";
 static QueueHandle_t s_q;
 static usb_host_client_handle_t s_client;
 static usb_device_handle_t s_dev;
-static uint8_t s_new_addr;
+static QueueHandle_t s_addrq;  // new device addresses (several at once behind a hub)
 static volatile bool s_gone, s_connected;
 static uint8_t s_iface = 0xFF, s_ep_in;
 static uint16_t s_mps;
@@ -45,7 +46,8 @@ static void in_cb(usb_transfer_t *t)
 static void client_event(const usb_host_client_event_msg_t *msg, void *arg)
 {
     if (msg->event == USB_HOST_CLIENT_EVENT_NEW_DEV) {
-        s_new_addr = msg->new_dev.address;
+        uint8_t a = msg->new_dev.address;
+        xQueueSend(s_addrq, &a, 0);
     } else if (msg->event == USB_HOST_CLIENT_EVENT_DEV_GONE) {
         s_gone = true;
     }
@@ -68,6 +70,12 @@ static bool find_midi(const usb_config_desc_t *cfg)
             cur_alt = i->bAlternateSetting;
             ESP_LOGI(TAG, "  interface %u alt %u: class 0x%02x sub 0x%02x, %u endpoints", cur_iface, cur_alt,
                      cur_class, cur_sub, i->bNumEndpoints);
+        } else if (d->bDescriptorType == 0x24 && cur_class == USB_CLASS_AUDIO) {
+            // class-specific interface descriptor: dump raw for audio analysis
+            const uint8_t *b = (const uint8_t *)d;
+            char hex[3 * 24 + 1] = "";
+            for (int k = 0; k < b[0] && k < 24; k++) snprintf(hex + 3 * k, 4, "%02x ", b[k]);
+            ESP_LOGI(TAG, "    cs-if: %s", hex);
         } else if (d->bDescriptorType == USB_B_DESCRIPTOR_TYPE_ENDPOINT) {
             const usb_ep_desc_t *e = (const usb_ep_desc_t *)d;
             ESP_LOGI(TAG, "    ep 0x%02x attr 0x%02x mps %u", e->bEndpointAddress, e->bmAttributes,
@@ -84,6 +92,24 @@ static bool find_midi(const usb_config_desc_t *cfg)
         }
     }
     return found;
+}
+
+static void describe_only(uint8_t addr)
+{
+    usb_device_handle_t d;
+    if (usb_host_device_open(s_client, addr, &d) != ESP_OK) return;
+    const usb_device_desc_t *dd;
+    usb_host_get_device_descriptor(d, &dd);
+    ESP_LOGI(TAG, "USB device %04x:%04x (class 0x%02x), not used:", dd->idVendor, dd->idProduct, dd->bDeviceClass);
+    const usb_config_desc_t *cfg;
+    usb_host_get_active_config_descriptor(d, &cfg);
+    uint8_t keep_iface = s_iface, keep_ep = s_ep_in;
+    uint16_t keep_mps = s_mps;
+    find_midi(cfg);  // only for the log
+    s_iface = keep_iface;
+    s_ep_in = keep_ep;
+    s_mps = keep_mps;
+    usb_host_device_close(s_client, d);
 }
 
 static void open_device(uint8_t addr)
@@ -152,11 +178,11 @@ static void client_task(void *arg)
     ESP_ERROR_CHECK(usb_host_client_register(&cc, &s_client));
     for (;;) {
         usb_host_client_handle_events(s_client, pdMS_TO_TICKS(100));
-        if (s_new_addr) {
-            uint8_t a = s_new_addr;
-            s_new_addr = 0;
+        uint8_t a;
+        while (xQueueReceive(s_addrq, &a, 0) == pdTRUE) {
             s_gone = false;
-            if (!s_dev) open_device(a);
+            if (s_dev) describe_only(a);
+            else open_device(a);
         }
         if (s_gone && s_dev) {
             close_device();
@@ -168,6 +194,7 @@ static void client_task(void *arg)
 esp_err_t midi_host_start(void)
 {
     s_q = xQueueCreate(64, sizeof(midi_msg_t));
+    s_addrq = xQueueCreate(8, sizeof(uint8_t));
     const usb_host_config_t hc = {.skip_phy_setup = false, .intr_flags = ESP_INTR_FLAG_LEVEL1};
     esp_err_t e = usb_host_install(&hc);
     if (e != ESP_OK) return e;

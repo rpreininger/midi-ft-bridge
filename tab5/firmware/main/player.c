@@ -40,6 +40,7 @@ static TaskHandle_t s_sender;
 static ft_sender_t s_snd[CFG_MAX_PANELS];
 static char s_test_ip[16];
 static volatile bool s_retarget;
+static char s_clip_name[48];
 
 static void *psram_alloc(size_t n) { return heap_caps_malloc(n, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT); }
 static void *dma_alloc(size_t n) { return heap_caps_aligned_alloc(128, n, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL); }
@@ -145,6 +146,10 @@ static bool start_clip(const char *path)
         return false;
     }
     s_clip_open = true;
+    const char *b = strrchr(path, '/');
+    strlcpy(s_clip_name, b ? b + 1 : path, sizeof s_clip_name);
+    char *dot = strrchr(s_clip_name, '.');
+    if (dot) *dot = 0;
     s_samples = 0;
     s_audio_stop = false;
     s_audio_done = !s_clip.has_audio;
@@ -236,4 +241,19 @@ void player_set_test_target(const char *ip)
     strlcpy(s_test_ip, ip ? ip : "", sizeof s_test_ip);
     s_retarget = true;
     if (s_sender) xTaskNotifyGive(s_sender);
+}
+
+void player_get_status(player_status_t *st)
+{
+    memset(st, 0, sizeof(*st));
+    st->playing = s_clip_open;
+    if (s_clip_open) {
+        strlcpy(st->clip, s_clip_name, sizeof st->clip);
+        st->frame = s_clip.next_frame;
+        st->frames = s_clip.hdr.frame_count;
+        st->fps = s_clip.hdr.fps_den ? s_clip.hdr.fps_num / s_clip.hdr.fps_den : 25;
+    }
+    st->npanels = s_cfg->npanels;
+    for (int i = 0; i < s_cfg->npanels; i++) st->panel_ok[i] = s_snd[i].pkt && !s_snd[i].down && s_snd[i].frames;
+    st->mirrored = s_test_ip[0] != 0;
 }
