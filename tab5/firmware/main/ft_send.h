@@ -2,6 +2,7 @@
 // PPM P6 with "#FT: x y" offset, 3-row tiles so no packet is fragmented.
 #pragma once
 
+#include <stdbool.h>
 #include <stdint.h>
 
 typedef struct {
@@ -9,6 +10,7 @@ typedef struct {
     uint32_t addr;      // network order
     uint16_t port;
     uint8_t *pkt;       // packet scratch
+    bool down;          // last frame failed: no retries until a tile gets through
     // stats
     uint32_t frames, packets, send_errors, retries;
 } ft_sender_t;

@@ -39,18 +39,28 @@ int ft_sender_send(ft_sender_t *s, const uint8_t *canvas, int canvas_w,
         }
         int len = (int)(p - s->pkt);
         // lwIP answers ENOMEM when its pbuf pool / the hosted TX queue is
-        // full; that is back-pressure, so yield briefly and retry a few times.
+        // full (back-pressure: retry briefly) but also when the panel does
+        // not answer ARP. A panel that is down must not stall the others:
+        // while it is down, its frame is abandoned at the first failure.
         int tries = 0;
+        bool ok = true;
         while (sendto(s->sock, s->pkt, len, 0, (struct sockaddr *)&to, sizeof to) < 0) {
-            if ((errno != ENOMEM && errno != EAGAIN) || ++tries > 20) {
-                failed++;
-                s->send_errors++;
+            if ((errno != ENOMEM && errno != EAGAIN) || s->down || ++tries > 3) {
+                ok = false;
                 break;
             }
             s->retries++;
             vTaskDelay(1);
         }
         s->packets++;
+        if (!ok) {
+            int rest = (src_h - y + TILE_ROWS - 1) / TILE_ROWS;  // this tile and all after it
+            failed += rest;
+            s->send_errors += rest;
+            s->down = true;
+            break;
+        }
+        s->down = false;
     }
     s->frames++;
     return failed;

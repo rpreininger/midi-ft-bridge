@@ -18,6 +18,9 @@
 #include "config.h"
 #include "net.h"
 #include "stream_test.h"
+#include "web.h"
+#include "midi_host.h"
+#include "player.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -236,6 +239,7 @@ static void run_bench(void)
 }
 
 static config_t s_cfg;
+static bool s_have_config;
 
 void app_main(void)
 {
@@ -250,7 +254,20 @@ void app_main(void)
     } else {
         ESP_LOGW(TAG, "no SD card");
     }
+    struct stat cst;
+    s_have_config = sd && stat(BOARD_SD_MOUNT "/config.json", &cst) == 0;
     config_load(&s_cfg, BOARD_SD_MOUNT "/config.json");
+    if (s_cfg.nmappings == 0) {
+        // the Fantom pad layout from the Mac config.json (notes 36..49, stop 51)
+        static const char *names[] = {"Intro", "Fly", "Moon", "Pixel", "OYM", "Tennis", "Neutrino",
+                                      "ZX89", "Magneto", "Jiffy", "Black", "Shrink", "Shin", "Axel"};
+        for (int i = 0; i < 14; i++) {
+            s_cfg.mappings[i].note = 36 + i;
+            snprintf(s_cfg.mappings[i].clip, sizeof s_cfg.mappings[i].clip, "/sdcard/ftc/%s.ftc", names[i]);
+        }
+        s_cfg.nmappings = 14;
+        if (s_cfg.stop_note < 0) s_cfg.stop_note = 51;
+    }
     if (s_cfg.npanels == 0) {
         // the stage rig from the Mac config.json
         static const cfg_panel_t rig[] = {
@@ -276,20 +293,49 @@ void app_main(void)
     ESP_ERROR_CHECK(net_start(&s_cfg.net));
     if (!net_wait_ready(20000)) { ESP_LOGE(TAG, "Wi-Fi did not come up"); return; }
     ESP_LOGI(TAG, "Wi-Fi up, %s %s", s_cfg.net.ap ? "AP" : "STA", net_ip());
+    web_start(s_cfg.volume);
 
-    const char *clip = NULL;
-    for (int i = 0; i < s_nclips; i++)
-        if (strcasestr(s_clips[i], "neutrino")) clip = s_clips[i];
-    if (!clip && s_nclips) clip = s_clips[0];
-    if (!clip) { ESP_LOGE(TAG, "no clip for the stream test"); return; }
-
-    for (;;) {
-        const char *target = NULL;
-        if (s_cfg.net.ap) {
-            ESP_LOGI(TAG, "waiting for a client on '%s' (password '%s')...", s_cfg.net.ssid, s_cfg.net.password);
-            while (!(target = net_ap_client_ip())) vTaskDelay(pdMS_TO_TICKS(500));
+    if (sd && stat(BOARD_SD_MOUNT "/streamtest", &st) == 0) {  // touch /streamtest: old load test
+        const char *clip = NULL;
+        for (int i = 0; i < s_nclips; i++)
+            if (strcasestr(s_clips[i], "neutrino")) clip = s_clips[i];
+        for (;;) {
+            const char *target = NULL;
+            while (s_cfg.net.ap && !(target = net_ap_client_ip())) vTaskDelay(pdMS_TO_TICKS(500));
+            stream_test_run(&s_cfg, clip, target, 60, ae == ESP_OK);
+            vTaskDelay(pdMS_TO_TICKS(3000));
         }
-        stream_test_run(&s_cfg, clip, target, 60, ae == ESP_OK);
-        vTaskDelay(pdMS_TO_TICKS(3000));
+    }
+
+    player_start(&s_cfg);
+    esp_err_t me = midi_host_start();
+    if (me != ESP_OK) ESP_LOGE(TAG, "USB host: %s", esp_err_to_name(me));
+
+    // Without a config.json the panels are not reachable anyway (the rig is
+    // not on this hotspot), so mirror the streams to the first client that
+    // joins - lets a phone stand in as the load for testing.
+    bool mirror = !s_have_config;
+    const char *mirrored = NULL;
+    for (;;) {
+        midi_msg_t m;
+        if (midi_host_get(&m, 200)) {
+            uint8_t type = m.status & 0xF0, ch = m.status & 0x0F;
+            ESP_LOGI(TAG, "MIDI cable %u ch %u: %02x %u %u", m.cable, ch + 1, m.status, m.d1, m.d2);
+            if (s_cfg.midi_channel >= 0 && ch != s_cfg.midi_channel) continue;
+            if (type == 0x90 && m.d2 > 0) {
+                if (m.d1 == s_cfg.stop_note) player_stop();
+                else if (!player_note(m.d1)) ESP_LOGI(TAG, "note %u not mapped", m.d1);
+            } else if (type == 0xB0 && m.d1 == 7) {
+                s_cfg.volume = m.d2 * 100 / 127;
+                board_audio_set_volume(s_cfg.volume);
+            }
+        }
+        if (mirror && s_cfg.net.ap) {
+            const char *c = net_ap_client_ip();
+            if (c && c != mirrored) {
+                mirrored = c;
+                player_set_test_target(c);
+            }
+        }
     }
 }
