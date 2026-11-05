@@ -23,6 +23,7 @@
 #include "player.h"
 #include "display.h"
 #include "esp_timer.h"
+#include "power.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -263,12 +264,26 @@ static void show_status(const config_t *cfg)
         b[0] = 0;
     }
     snprintf(v, sizeof v, "Vol %d", board_audio_get_volume());
+    power_state_t pw;
+    char bat[32] = "";
+    uint32_t bat_col = COL_DIM;
+    if (power_read(&pw) && pw.present) {
+        snprintf(bat, sizeof bat, "Akku %d%%", pw.percent);
+        bat_col = pw.percent > 40 ? COL_OK : pw.percent > 20 ? COL_ACC : COL_BAD;
+        static int64_t next_log;
+        int64_t now = esp_timer_get_time();
+        if (now >= next_log) {
+            next_log = now + 30000000;
+            ESP_LOGI(TAG, "battery %.3f V, %.3f A, %d%%", pw.volts, pw.amps, pw.percent);
+        }
+    }
     display_span_t top[] = {
         {64, a, st.playing ? COL_ACC : COL_DIM},
         {520, b, COL_TXT},
+        {-260, bat, bat_col},
         {-64, v, COL_TXT},
     };
-    display_status(0, top, 3);
+    display_status(0, top, 4);
 
     char wifi[64];
     if (cfg->net.ap) snprintf(wifi, sizeof wifi, "WLAN %s: %d Client%s", cfg->net.ssid, net_ap_clients(),
@@ -301,6 +316,7 @@ void app_main(void)
              (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024),
              (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024));
     ESP_ERROR_CHECK(board_init());
+    power_init(board_i2c());
     esp_err_t de = display_init(board_i2c(), 288, 128);
     if (de != ESP_OK) ESP_LOGE(TAG, "display: %s", esp_err_to_name(de));
     bool sd = board_sd_mount() == ESP_OK;
