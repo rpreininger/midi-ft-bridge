@@ -34,3 +34,7 @@ clips/*.app/
 # Source material dropped in by hand (playlist screenshots etc.) — the repo is
 # public, so these stay local
 Docs/
+
+# Tab5 transcoded clips (FTC1, ~2 GB) - regenerate with tab5/tools/ftc_encode.py
+clips/ftc/
+*.ftc
