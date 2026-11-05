@@ -34,6 +34,7 @@ typedef struct {
     int midi_channel;  // 0..15, -1 = any
     int stop_note;     // -1 = none
     int volume;
+    char midi_device[32];  // USB name filter, default "FANTOM"
     net_config_t net;
     int npanels;
     cfg_panel_t panels[CFG_MAX_PANELS];

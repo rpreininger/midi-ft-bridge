@@ -12,7 +12,11 @@ typedef struct {
     uint8_t d1, d2;
 } midi_msg_t;
 
-esp_err_t midi_host_start(void);
+// name_filter: accept only devices whose product/manufacturer string or
+// "vvvv:pppp" contains it (case-insensitive); "" = all MIDI devices.
+esp_err_t midi_host_start(const char *name_filter);
 // Next message, waiting up to timeout_ms. false if none.
 bool midi_host_get(midi_msg_t *m, int timeout_ms);
 bool midi_host_connected(void);
+// Comma-separated product names of the active MIDI inputs ("" if none).
+const char *midi_host_names(void);

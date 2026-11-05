@@ -17,6 +17,7 @@ static void defaults(config_t *c)
     c->midi_channel = -1;
     c->stop_note = -1;
     c->volume = 20;
+    strcpy(c->midi_device, "FANTOM");
     c->net.ap = true;
     strcpy(c->net.ssid, "FT-TAB5");
     strcpy(c->net.password, "flaschentaschen");
@@ -76,6 +77,12 @@ bool config_load(config_t *c, const char *path)
     c->video_h = geti(root, "video_height", c->video_h);
     c->midi_channel = geti(root, "midi_channel", c->midi_channel);
     c->stop_note = geti(root, "stop_note", c->stop_note);
+    // Same key as the Mac app (a CoreMIDI display-name substring there). An
+    // explicit "" accepts every USB-MIDI device.
+    if (cJSON_GetObjectItemCaseSensitive(root, "midi_device")) {
+        c->midi_device[0] = 0;
+        jstr(root, "midi_device", c->midi_device, sizeof c->midi_device);
+    }
 
     const cJSON *p;
     cJSON_ArrayForEach(p, cJSON_GetObjectItemCaseSensitive(root, "panels")) {

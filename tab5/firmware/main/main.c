@@ -291,9 +291,11 @@ static void show_status(const config_t *cfg)
     else snprintf(wifi, sizeof wifi, "WLAN %s: %s", cfg->net.ssid, net_ip());
     display_span_t bot[3 + CFG_MAX_PANELS];
     int n = 0;
-    bot[n++] = (display_span_t){64, midi_host_connected() ? "MIDI OK" : "MIDI --",
-                                midi_host_connected() ? COL_OK : COL_BAD};
-    bot[n++] = (display_span_t){260, wifi, COL_TXT};
+    static char midi[48];
+    if (midi_host_connected()) snprintf(midi, sizeof midi, "MIDI: %.30s", midi_host_names());
+    else snprintf(midi, sizeof midi, "MIDI: --");
+    bot[n++] = (display_span_t){64, midi, midi_host_connected() ? COL_OK : COL_BAD};
+    bot[n++] = (display_span_t){420, wifi, COL_TXT};
     static char pn[CFG_MAX_PANELS][24];
     int x = -64 - 0;
     // panels right-aligned, last panel at the right edge
@@ -380,7 +382,7 @@ void app_main(void)
     }
 
     player_start(&s_cfg);
-    esp_err_t me = midi_host_start();
+    esp_err_t me = midi_host_start(s_cfg.midi_device);
     if (me != ESP_OK) ESP_LOGE(TAG, "USB host: %s", esp_err_to_name(me));
 
     // Without a config.json the panels are not reachable anyway (the rig is
