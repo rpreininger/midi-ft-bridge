@@ -51,9 +51,13 @@ typedef struct {
 // output overflow. Never reads/writes out of bounds.
 int ftc_lz4_decode(const uint8_t *src, size_t src_len, uint8_t *dst, size_t dst_cap);
 
-// Opens path; allocs buffers with `alloc` (NULL = malloc). io_buf_size is the
-// read-ahead per stream (0 = 64 KB). 0 on success; on failure call ftc_close.
-int ftc_open(ftc_clip_t *c, const char *path, void *(*alloc)(size_t), size_t io_buf_size);
+// Opens path; frame buffers come from `alloc` (NULL = malloc), the two
+// read-ahead buffers (io_buf_size each, 0 = 64 KB) from `io_alloc` (NULL =
+// alloc). On the ESP32 give io_alloc DMA-capable internal RAM: SD reads into
+// PSRAM fall back to per-sector bounce copies. 0 on success; on failure call
+// ftc_close.
+int ftc_open(ftc_clip_t *c, const char *path, void *(*alloc)(size_t), void *(*io_alloc)(size_t),
+             size_t io_buf_size);
 // Same for a clip that is already in memory (e.g. mmapped flash partition).
 int ftc_open_mem(ftc_clip_t *c, const void *data, size_t len, void *(*alloc)(size_t));
 void ftc_close(ftc_clip_t *c, void (*release)(void *));

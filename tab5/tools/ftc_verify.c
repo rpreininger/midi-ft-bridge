@@ -12,7 +12,7 @@ int main(int argc, char **argv)
 {
     if (argc < 2) { fprintf(stderr, "usage: %s clip.ftc [out.rgb] [out.pcm]\n", argv[0]); return 2; }
     ftc_clip_t c;
-    if (ftc_open(&c, argv[1], NULL, 32768)) { fprintf(stderr, "open failed\n"); ftc_close(&c, NULL); return 1; }
+    if (ftc_open(&c, argv[1], NULL, NULL, 32768)) { fprintf(stderr, "open failed\n"); ftc_close(&c, NULL); return 1; }
     FILE *ro = argc > 2 ? fopen(argv[2], "wb") : NULL;
     FILE *ao = argc > 3 ? fopen(argv[3], "wb") : NULL;
     size_t fsz = (size_t)c.hdr.width * c.hdr.height * 3;

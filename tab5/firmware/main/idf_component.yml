@@ -1,3 +1,7 @@
 dependencies:
   idf: ">=5.4"
   espressif/esp_codec_dev: "~1.3.4"
+  # Same pair M5 ships with the Tab5 demo; they match the ESP32-C6 slave
+  # firmware on the device (ESP32C6-WiFi-SDIO-Interface V1.4.1).
+  espressif/esp_hosted: "1.4.0"
+  espressif/esp_wifi_remote: "0.8.5"

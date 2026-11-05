@@ -103,16 +103,9 @@ static size_t rd_read(ftc_reader_t *r, void *dst, size_t n)
             done += k;
             continue;
         }
-        size_t want = n - done;
-        if (want >= r->cap) {  // large: straight into the destination
-            ssize_t got = read(r->fd, d + done, want);
-            if (got <= 0) break;
-            done += (size_t)got;
-            // the window is now empty and starts at the new position
-            r->head = r->tail = 0;
-            r->pos += (size_t)got;
-            continue;
-        }
+        // Always refill through r->buf: it is DMA-capable internal RAM, the
+        // destination (frame buffers in PSRAM) is not, and the SD driver
+        // degrades to sector-by-sector bounce copies for such targets.
         ssize_t got = read(r->fd, r->buf, r->cap);
         if (got <= 0) break;
         // buffer window starts at the current position
@@ -185,7 +178,8 @@ static int parse_and_alloc(ftc_clip_t *c, void *(*alloc)(size_t))
     return 0;
 }
 
-int ftc_open(ftc_clip_t *c, const char *path, void *(*alloc)(size_t), size_t io_buf_size)
+int ftc_open(ftc_clip_t *c, const char *path, void *(*alloc)(size_t), void *(*io_alloc)(size_t),
+             size_t io_buf_size)
 {
     memset(c, 0, sizeof(*c));
     c->v.fd = c->a.fd = -1;
@@ -195,8 +189,9 @@ int ftc_open(ftc_clip_t *c, const char *path, void *(*alloc)(size_t), size_t io_
     c->a.fd = open(path, O_RDONLY);  // independent position for the audio stream
     if (c->v.fd < 0 || c->a.fd < 0) return -1;
     c->v.cap = c->a.cap = io_buf_size;
-    c->v.buf = alloc(io_buf_size);
-    c->a.buf = alloc(io_buf_size);
+    if (!io_alloc) io_alloc = alloc;
+    c->v.buf = io_alloc(io_buf_size);
+    c->a.buf = io_alloc(io_buf_size);
     if (!c->v.buf || !c->a.buf) return -1;
     return parse_and_alloc(c, alloc);
 }

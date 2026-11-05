@@ -15,6 +15,9 @@
 #include <sys/stat.h>
 
 #include "board.h"
+#include "config.h"
+#include "net.h"
+#include "stream_test.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -30,6 +33,7 @@ static char s_clips[MAX_CLIPS][128];
 static int s_nclips;
 
 static void *psram_alloc(size_t n) { return heap_caps_malloc(n, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT); }
+static void *dma_alloc(size_t n) { return heap_caps_aligned_alloc(128, n, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL); }
 
 // Clip in the "testclip" flash partition (no SD card needed). Mapped once,
 // read through ftc_open_mem (video and audio keep their own position).
@@ -66,7 +70,7 @@ static int open_clip(ftc_clip_t *c, const char *path)
     if (strcmp(path, FLASH_CLIP) == 0) {
         return ftc_open_mem(c, s_flash_clip, s_flash_clip_len, psram_alloc);
     }
-    return ftc_open(c, path, psram_alloc, 64 * 1024);
+    return ftc_open(c, path, psram_alloc, dma_alloc, 32 * 1024);
 }
 
 static void scan_dir(const char *dir)
@@ -211,25 +215,11 @@ static void bench_realtime(const char *path, int seconds, bool with_audio)
     ftc_close(&s_play, free);
 }
 
-void app_main(void)
+static void run_bench(void)
 {
-    ESP_LOGI(TAG, "Tab5 playout bench. PSRAM free %u KB, internal free %u KB",
-             (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024),
-             (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024));
-    ESP_ERROR_CHECK(board_init());
-    if (board_sd_mount() == ESP_OK) {
-        scan_dir(BOARD_SD_MOUNT);
-        scan_dir(BOARD_SD_MOUNT "/clips");
-        scan_dir(BOARD_SD_MOUNT "/ftc");
-        ESP_LOGI(TAG, "%d clip(s) on SD", s_nclips);
-    } else {
-        ESP_LOGW(TAG, "no SD card - benchmarking the flash test clip only");
-    }
     bool have_flash = map_flash_clip();
     if (have_flash && s_nclips < MAX_CLIPS) strcpy(s_clips[s_nclips++], FLASH_CLIP);
     if (!s_nclips) { ESP_LOGE(TAG, "no clips at all"); return; }
-
-    // biggest SD file = heaviest bitrate stand-in for the read test
     int big = -1;
     off_t bigsz = 0;
     for (int i = 0; i < s_nclips; i++) {
@@ -237,18 +227,69 @@ void app_main(void)
         if (strcmp(s_clips[i], FLASH_CLIP) && stat(s_clips[i], &st) == 0 && st.st_size > bigsz) { bigsz = st.st_size; big = i; }
     }
     if (big >= 0) bench_sd_read(s_clips[big]);
-
-    for (int i = 0; i < s_nclips; i++) bench_decode(s_clips[i], 1500);
-
-    esp_err_t ae = board_audio_init(48000);
-    if (ae != ESP_OK) ESP_LOGE(TAG, "audio init failed: %s", esp_err_to_name(ae));
-
-    // Neutrino has the highest video bitrate of the set.
+    for (int i = 0; i < s_nclips; i++) bench_decode(s_clips[i], 750);
     int rt = big >= 0 ? big : s_nclips - 1;
     for (int i = 0; i < s_nclips; i++)
         if (strcasestr(s_clips[i], "neutrino")) rt = i;
-    // the flash clip is only 6.5 s: run it a few times to see the spread
-    int runs = strcmp(s_clips[rt], FLASH_CLIP) == 0 ? 3 : 1;
-    for (int r = 0; r < runs; r++) bench_realtime(s_clips[rt], 30, ae == ESP_OK);
+    bench_realtime(s_clips[rt], 30, true);
     ESP_LOGI(TAG, "bench done");
+}
+
+static config_t s_cfg;
+
+void app_main(void)
+{
+    ESP_LOGI(TAG, "Tab5 playout. PSRAM free %u KB, internal free %u KB",
+             (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024),
+             (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024));
+    ESP_ERROR_CHECK(board_init());
+    bool sd = board_sd_mount() == ESP_OK;
+    if (sd) {
+        scan_dir(BOARD_SD_MOUNT "/ftc");
+        ESP_LOGI(TAG, "%d clip(s) on SD", s_nclips);
+    } else {
+        ESP_LOGW(TAG, "no SD card");
+    }
+    config_load(&s_cfg, BOARD_SD_MOUNT "/config.json");
+    if (s_cfg.npanels == 0) {
+        // the stage rig from the Mac config.json
+        static const cfg_panel_t rig[] = {
+            {"A_bigpanel", "192.168.10.21", 1337, 0, 0, 128, 128},
+            {"B_ericpanel", "192.168.10.22", 1337, 128, 0, 128, 64},
+            {"C_ralfpanel", "192.168.10.20", 1337, 128, 64, 128, 64},
+        };
+        memcpy(s_cfg.panels, rig, sizeof rig);
+        s_cfg.npanels = 3;
+    }
+    config_log(&s_cfg);
+
+    esp_err_t ae = board_audio_init(48000);
+    if (ae == ESP_OK) board_audio_set_volume(s_cfg.volume);
+    else ESP_LOGE(TAG, "audio init failed: %s", esp_err_to_name(ae));
+
+    struct stat st;
+    if (sd && stat(BOARD_SD_MOUNT "/bench", &st) == 0) {  // touch /bench on the card
+        run_bench();
+        return;
+    }
+
+    ESP_ERROR_CHECK(net_start(&s_cfg.net));
+    if (!net_wait_ready(20000)) { ESP_LOGE(TAG, "Wi-Fi did not come up"); return; }
+    ESP_LOGI(TAG, "Wi-Fi up, %s %s", s_cfg.net.ap ? "AP" : "STA", net_ip());
+
+    const char *clip = NULL;
+    for (int i = 0; i < s_nclips; i++)
+        if (strcasestr(s_clips[i], "neutrino")) clip = s_clips[i];
+    if (!clip && s_nclips) clip = s_clips[0];
+    if (!clip) { ESP_LOGE(TAG, "no clip for the stream test"); return; }
+
+    for (;;) {
+        const char *target = NULL;
+        if (s_cfg.net.ap) {
+            ESP_LOGI(TAG, "waiting for a client on '%s' (password '%s')...", s_cfg.net.ssid, s_cfg.net.password);
+            while (!(target = net_ap_client_ip())) vTaskDelay(pdMS_TO_TICKS(500));
+        }
+        stream_test_run(&s_cfg, clip, target, 60, ae == ESP_OK);
+        vTaskDelay(pdMS_TO_TICKS(3000));
+    }
 }
