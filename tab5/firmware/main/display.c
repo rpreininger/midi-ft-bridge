@@ -82,10 +82,20 @@ static bool is_st7121(i2c_master_bus_handle_t bus)
     i2c_master_dev_handle_t d;
     if (i2c_master_bus_add_device(bus, &dc, &d) != ESP_OK) return false;
     uint8_t reg[2] = {0, 0}, fw = 0;
-    esp_err_t e = i2c_master_transmit_receive(d, reg, 2, &fw, 1, 50);
+    esp_err_t e = ESP_FAIL;
+    // the touch chip sometimes NACKs right after power-up: retry
+    for (int i = 0; i < 20 && e != ESP_OK; i++) {
+        e = i2c_master_transmit_receive(d, reg, 2, &fw, 1, 50);
+        if (e != ESP_OK) vTaskDelay(pdMS_TO_TICKS(25));
+    }
     i2c_master_bus_rm_device(d);
-    ESP_LOGI(TAG, "touch fw version %u (%s)", fw, e == ESP_OK ? "ok" : esp_err_to_name(e));
-    return e == ESP_OK && fw == 1;
+    if (e != ESP_OK) {
+        // our unit is an ST7121; better than M5's ST7123 default for it
+        ESP_LOGW(TAG, "touch fw version unreadable (%s), assuming ST7121", esp_err_to_name(e));
+        return true;
+    }
+    ESP_LOGI(TAG, "touch fw version %u", fw);
+    return fw == 1;
 }
 
 // Draw and wait until the DMA has read px (callers reuse their buffers).
