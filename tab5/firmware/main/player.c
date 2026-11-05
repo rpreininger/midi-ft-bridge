@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "board.h"
+#include "display.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -100,6 +101,7 @@ static void submit_canvas(const uint8_t *rgb)
     size_t n = (size_t)s_cfg->video_w * s_cfg->video_h * 3;
     if (rgb) memcpy(s_canvas[s_fill], rgb, n);
     else memset(s_canvas[s_fill], 0, n);
+    display_preview(s_canvas[s_fill]);
     s_ready = s_fill;  // if the sender is still busy, the older frame is simply replaced
     s_fill ^= 1;
     xTaskNotifyGive(s_sender);

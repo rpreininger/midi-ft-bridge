@@ -7,10 +7,12 @@
 #include <stddef.h>
 #include "esp_err.h"
 #include "sd_protocol_types.h"
+#include "driver/i2c_master.h"
 
 #define BOARD_SD_MOUNT "/sdcard"
 
 esp_err_t board_init(void);               // I2C + IO expanders (power rails)
+i2c_master_bus_handle_t board_i2c(void);
 esp_err_t board_sd_mount(void);           // 4-bit SDMMC, 40 MHz, FAT
 sdmmc_card_t *board_sd_card(void);
 esp_err_t board_audio_init(uint32_t rate); // I2S1 TX stereo s16 + ES8388

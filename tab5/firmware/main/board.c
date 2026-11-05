@@ -15,6 +15,7 @@
 #include "freertos/task.h"
 #include "sd_pwr_ctrl_by_on_chip_ldo.h"
 #include "sdmmc_cmd.h"
+#include <string.h>
 
 static const char *TAG = "board";
 
@@ -102,6 +103,12 @@ esp_err_t board_init(void)
     io_wr(s_io2, PI4IO_REG_IN_DEF_STA, 0x40);
     io_wr(s_io2, PI4IO_REG_INT_MASK, 0xBF);
     io_wr(s_io2, PI4IO_REG_OUT_SET, 0x09);  // WLAN power + USB 5V on
+
+    char found[128] = "";
+    for (int a = 0x08; a < 0x78; a++)
+        if (i2c_master_probe(s_i2c, a, 20) == ESP_OK)
+            snprintf(found + strlen(found), sizeof found - strlen(found), " %02x", a);
+    ESP_LOGI(TAG, "I2C devices:%s", found);
     return ESP_OK;
 }
 
@@ -138,6 +145,7 @@ esp_err_t board_sd_mount(void)
 }
 
 sdmmc_card_t *board_sd_card(void) { return s_card; }
+i2c_master_bus_handle_t board_i2c(void) { return s_i2c; }
 
 esp_err_t board_audio_init(uint32_t rate)
 {
