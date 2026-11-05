@@ -53,6 +53,9 @@ static sdmmc_card_t *s_card;
 static i2s_chan_handle_t s_tx;
 static esp_codec_dev_handle_t s_spk;
 static int s_volume = -1;
+static i2c_master_dev_handle_t s_es8388;
+static int s_jack = -1;  // last seen headphone-jack state
+static int s_vol_jack = 85, s_vol_spk = 20;  // remembered per output
 
 static void io_wr(i2c_master_dev_handle_t d, uint8_t reg, uint8_t val)
 {
@@ -195,7 +198,17 @@ esp_err_t board_audio_init(uint32_t rate)
 
     esp_codec_dev_sample_info_t fs = {.sample_rate = rate, .channel = 2, .bits_per_sample = 16};
     ESP_RETURN_ON_FALSE(esp_codec_dev_open(s_spk, &fs) == ESP_CODEC_DEV_OK, ESP_FAIL, TAG, "codec open");
-    board_audio_set_volume(20);  // quiet default; config.json will set it
+    // The codec driver leaves LOUT2/ROUT2 at -30 dB (regs 0x30/0x31); we do not
+    // know for sure which pair feeds the jack and which the speaker amp, so
+    // both pairs run at 0 dB and the digital volume does the rest.
+    i2c_device_config_t ec = {.dev_addr_length = I2C_ADDR_BIT_LEN_7, .device_address = 0x10, .scl_speed_hz = 100000};
+    if (i2c_master_bus_add_device(s_i2c, &ec, &s_es8388) == ESP_OK) {
+        for (uint8_t r = 0x2E; r <= 0x31; r++) {
+            uint8_t b[2] = {r, 0x1E};
+            i2c_master_transmit(s_es8388, b, 2, 50);
+        }
+    }
+    board_audio_poll_jack();  // applies the volume of the active output  // quiet default; config.json will set it
     return ESP_OK;
 }
 
@@ -203,6 +216,8 @@ esp_err_t board_audio_set_volume(int vol)
 {
     if (!s_spk) return ESP_ERR_INVALID_STATE;
     s_volume = vol;
+    if (s_jack == 1) s_vol_jack = vol;
+    else s_vol_spk = vol;
     esp_codec_dev_set_out_mute(s_spk, vol <= 0);
     return esp_codec_dev_set_out_vol(s_spk, vol) == ESP_CODEC_DEV_OK ? ESP_OK : ESP_FAIL;
 }
@@ -214,3 +229,29 @@ esp_err_t board_audio_write(const void *pcm, size_t bytes)
 }
 
 int board_audio_get_volume(void) { return s_volume; }
+
+// Expander 1, P7 = headphone detect (high = plugged), P1 = speaker amp enable.
+bool board_audio_poll_jack(void)
+{
+    uint8_t reg = 0x0F, in = 0, out = 0;
+    if (i2c_master_transmit_receive(s_io1, &reg, 1, &in, 1, 50) != ESP_OK) return s_jack == 1;
+    int jack = (in & 0x80) ? 1 : 0;
+    if (jack != s_jack) {
+        s_jack = jack;
+        reg = PI4IO_REG_OUT_SET;
+        i2c_master_transmit_receive(s_io1, &reg, 1, &out, 1, 50);
+        out = jack ? (out & ~0x02) : (out | 0x02);  // speaker off while a cable is in the jack
+        io_wr(s_io1, PI4IO_REG_OUT_SET, out);
+        board_audio_set_volume(jack ? s_vol_jack : s_vol_spk);
+        ESP_LOGI(TAG, "headphone jack %s -> speaker %s, volume %d", jack ? "plugged" : "empty", jack ? "off" : "on",
+                 s_volume);
+    }
+    return jack;
+}
+
+void board_audio_default_volumes(int jack, int speaker)
+{
+    if (jack >= 0) s_vol_jack = jack;
+    if (speaker >= 0) s_vol_spk = speaker;
+    if (s_spk && s_jack >= 0) board_audio_set_volume(s_jack ? s_vol_jack : s_vol_spk);
+}

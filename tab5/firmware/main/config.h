@@ -6,7 +6,8 @@
 //     "wifi_mode": "ap" | "sta",     default "ap"
 //     "ssid": "...", "password": "...",
 //     "channel": 6, "ap_ip": "192.168.10.1",
-//     "volume": 20                   0..100
+//     "volume": 85,                  0..100, jack / line out
+//     "speaker_volume": 20           0..100, internal speaker
 //   }
 #pragma once
 
@@ -33,7 +34,8 @@ typedef struct {
     int video_w, video_h;
     int midi_channel;  // 0..15, -1 = any
     int stop_note;     // -1 = none
-    int volume;
+    int volume;          // jack (line out to the mixer), default 85
+    int speaker_volume;  // internal speaker, default 20
     char midi_device[32];  // USB name filter, default "FANTOM"
     net_config_t net;
     int npanels;

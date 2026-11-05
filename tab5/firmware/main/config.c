@@ -16,7 +16,8 @@ static void defaults(config_t *c)
     c->video_h = 128;
     c->midi_channel = -1;
     c->stop_note = -1;
-    c->volume = 20;
+    c->volume = 85;
+    c->speaker_volume = 20;
     strcpy(c->midi_device, "FANTOM");
     c->net.ap = true;
     strcpy(c->net.ssid, "FT-TAB5");
@@ -121,6 +122,7 @@ bool config_load(config_t *c, const char *path)
         jstr(t, "ap_ip", c->net.ap_ip, sizeof c->net.ap_ip);
         c->net.channel = geti(t, "channel", c->net.channel);
         c->volume = geti(t, "volume", c->volume);
+        c->speaker_volume = geti(t, "speaker_volume", c->speaker_volume);
     }
     cJSON_Delete(root);
     return true;

@@ -4,6 +4,7 @@
 #pragma once
 
 #include <stdint.h>
+#include <stdbool.h>
 #include <stddef.h>
 #include "esp_err.h"
 #include "sd_protocol_types.h"
@@ -18,6 +19,13 @@ sdmmc_card_t *board_sd_card(void);
 esp_err_t board_audio_init(uint32_t rate); // I2S1 TX stereo s16 + ES8388
 esp_err_t board_audio_set_volume(int vol); // 0..100
 int board_audio_get_volume(void);          // -1 before audio init
+// Reads the jack detect; switches the internal speaker off while a cable is
+// plugged. Call periodically. Returns true when plugged.
+bool board_audio_poll_jack(void);
+// Volumes per output (jack: line into the mixer, high for a clean level;
+// speaker: quiet). -1 keeps a value. Changing the volume later updates the
+// active output's remembered value.
+void board_audio_default_volumes(int jack, int speaker);
 
 // Blocking write of interleaved s16 stereo PCM; returns when DMA took it.
 esp_err_t board_audio_write(const void *pcm, size_t bytes);

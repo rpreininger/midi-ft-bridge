@@ -263,7 +263,7 @@ static void show_status(const config_t *cfg)
         snprintf(a, sizeof a, "gestoppt");
         b[0] = 0;
     }
-    snprintf(v, sizeof v, "Vol %d", board_audio_get_volume());
+    snprintf(v, sizeof v, "%s %d", board_audio_poll_jack() ? "Klinke" : "Lautspr.", board_audio_get_volume());
     power_state_t pw;
     char bat[32] = "";
     uint32_t bat_col = COL_DIM;
@@ -355,7 +355,7 @@ void app_main(void)
     config_log(&s_cfg);
 
     esp_err_t ae = board_audio_init(48000);
-    if (ae == ESP_OK) board_audio_set_volume(s_cfg.volume);
+    if (ae == ESP_OK) board_audio_default_volumes(s_cfg.volume, s_cfg.speaker_volume);
     else ESP_LOGE(TAG, "audio init failed: %s", esp_err_to_name(ae));
 
     struct stat st;
@@ -367,7 +367,7 @@ void app_main(void)
     ESP_ERROR_CHECK(net_start(&s_cfg.net));
     if (!net_wait_ready(20000)) { ESP_LOGE(TAG, "Wi-Fi did not come up"); return; }
     ESP_LOGI(TAG, "Wi-Fi up, %s %s", s_cfg.net.ap ? "AP" : "STA", net_ip());
-    web_start(s_cfg.volume);
+    web_start(board_audio_get_volume());
 
     if (sd && stat(BOARD_SD_MOUNT "/streamtest", &st) == 0) {  // touch /streamtest: old load test
         const char *clip = NULL;
@@ -395,6 +395,7 @@ void app_main(void)
         int64_t now = esp_timer_get_time();
         if (now >= next_status) {
             next_status = now + 500000;
+            board_audio_poll_jack();
             show_status(&s_cfg);
         }
         midi_msg_t m;
@@ -406,8 +407,7 @@ void app_main(void)
                 if (m.d1 == s_cfg.stop_note) player_stop();
                 else if (!player_note(m.d1)) ESP_LOGI(TAG, "note %u not mapped", m.d1);
             } else if (type == 0xB0 && m.d1 == 7) {
-                s_cfg.volume = m.d2 * 100 / 127;
-                board_audio_set_volume(s_cfg.volume);
+                board_audio_set_volume(m.d2 * 100 / 127);
             }
         }
         if (mirror && s_cfg.net.ap) {

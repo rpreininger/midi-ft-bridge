@@ -36,12 +36,19 @@ Behaviour (`main/main.c`, `main/player.c`):
   hotspot `FT-TAB5` / `flaschentaschen`, 192.168.10.1, and the streams are
   mirrored to the first hotspot client (test mode).
 - Clips: `/sdcard/ftc/<Name>.ftc` (transcode with `tools/ftc_encode.py`).
-- Volume: web page `http://192.168.10.1/`, Fantom CC7, or config (default 20).
+- Volume: web page `http://192.168.10.1/`, Fantom CC7, or config. Kept per
+  output: jack/line out default 85 (keep it high, set the level on the
+  mixer), internal speaker default 20. A cable in the jack switches the
+  speaker off. MIDI input defaults to devices named "FANTOM" (`midi_device`).
 - `/sdcard/bench` -> run the decode/SD benchmark instead;
   `/sdcard/streamtest` -> the 60 s streaming load test.
 
 Audio out:
-- Now: Tab5 headphone jack (ES8388) analog into the AG06.
+- Now: Tab5 headphone jack (ES8388, ~96 dB SNR, 24-bit DAC; clips are 16-bit)
+  analog into a stereo line input of the AG06. Verified working. Check for
+  ground-loop hum (run the Tab5 on battery or use an isolator) and Wi-Fi
+  buzz at gig volume. Both ES8388 output pairs run at 0 dB analog (the codec
+  driver leaves OUT2 at -30 dB).
 - USB audio to the AG06 is possible later on the **USB-A** port: AG06 =
   Yamaha 0499:1757 behind its own internal hub, **UAC 2.0**, stereo 24-bit in
   32-bit slots, async isochronous OUT (ep 0x01) with feedback (ep 0x81).

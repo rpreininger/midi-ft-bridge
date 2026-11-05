@@ -26,6 +26,7 @@ static const char PAGE[] =
 static esp_err_t root_get(httpd_req_t *req)
 {
     char buf[sizeof PAGE + 16];
+    s_volume = board_audio_get_volume();
     snprintf(buf, sizeof buf, PAGE, s_volume, s_volume);
     httpd_resp_set_type(req, "text/html");
     return httpd_resp_send(req, buf, HTTPD_RESP_USE_STRLEN);
