@@ -35,6 +35,7 @@ static usb_host_client_handle_t s_client;
 static slot_t s_slots[MAX_DEV];
 static char s_filter[32];
 static char s_names[96];
+static bool s_roland;  // device being parsed is Roland (vendor-mode MIDI allowed)
 
 // USB-MIDI 1.0 code index number -> number of MIDI bytes in the packet
 static const uint8_t CIN_LEN[16] = {0, 0, 2, 3, 3, 1, 2, 3, 3, 3, 3, 3, 2, 2, 3, 1};
@@ -86,7 +87,7 @@ static bool find_midi(const usb_config_desc_t *cfg, uint8_t *iface, uint8_t *ep,
 {
     int off = 0;
     const usb_standard_desc_t *d = (const usb_standard_desc_t *)cfg;
-    uint8_t cur_iface = 0xFF, cur_class = 0, cur_sub = 0;
+    uint8_t cur_iface = 0xFF, cur_class = 0, cur_sub = 0, cur_alt = 0;
     bool found = false;
     while ((d = usb_parse_next_descriptor(d, cfg->wTotalLength, &off))) {
         if (d->bDescriptorType == USB_B_DESCRIPTOR_TYPE_INTERFACE) {
@@ -94,13 +95,28 @@ static bool find_midi(const usb_config_desc_t *cfg, uint8_t *iface, uint8_t *ep,
             cur_iface = i->bInterfaceNumber;
             cur_class = i->bInterfaceClass;
             cur_sub = i->bInterfaceSubClass;
+            cur_alt = i->bAlternateSetting;
             ESP_LOGI(TAG, "  interface %u alt %u: class 0x%02x sub 0x%02x, %u endpoints", cur_iface,
                      i->bAlternateSetting, cur_class, cur_sub, i->bNumEndpoints);
+        } else if (d->bDescriptorType == 0x24 || d->bDescriptorType == 0x25) {
+            // class-specific interface/endpoint descriptor: raw dump (formats,
+            // sample rates, terminals) - useful for vendor-class audio too
+            const uint8_t *b = (const uint8_t *)d;
+            char hex[3 * 32 + 1] = "";
+            for (int k = 0; k < b[0] && k < 32; k++) snprintf(hex + 3 * k, 4, "%02x ", b[k]);
+            ESP_LOGI(TAG, "    cs: %s", hex);
         } else if (d->bDescriptorType == USB_B_DESCRIPTOR_TYPE_ENDPOINT) {
             const usb_ep_desc_t *e = (const usb_ep_desc_t *)d;
+            static const char *TT[] = {"control", "iso", "bulk", "interrupt"};
+            ESP_LOGI(TAG, "    ep 0x%02x %s%s mps %u interval %u", e->bEndpointAddress, TT[e->bmAttributes & 3],
+                     (e->bmAttributes & 3) == 1 ? ((e->bmAttributes >> 2 & 3) == 1 ? " async" : (e->bmAttributes >> 2 & 3) == 2 ? " adaptive" : (e->bmAttributes >> 2 & 3) == 3 ? " sync" : "") : "",
+                     USB_EP_DESC_GET_MPS(e), e->bInterval);
             uint8_t type = e->bmAttributes & 0x03;  // 2 bulk, 3 interrupt
-            if (!found && (e->bEndpointAddress & 0x80) && (type == 2 || type == 3) &&
-                cur_class == USB_CLASS_AUDIO && cur_sub == USB_SUBCLASS_MIDISTREAMING) {
+            // class-compliant MIDI streaming, or Roland's VENDOR-mode MIDI
+            // (class 0xFF, subclass 3, same 4-byte USB-MIDI packets)
+            bool midi_if = (cur_class == USB_CLASS_AUDIO || (cur_class == 0xFF && s_roland)) &&
+                           cur_sub == USB_SUBCLASS_MIDISTREAMING;
+            if (!found && (e->bEndpointAddress & 0x80) && (type == 2 || type == 3) && midi_if && cur_alt == 0) {
                 *iface = cur_iface;
                 *ep = e->bEndpointAddress;
                 *mps = USB_EP_DESC_GET_MPS(e);
@@ -139,6 +155,7 @@ static void open_device(uint8_t addr)
              dd->bcdUSB & 0xFF, dd->bNumConfigurations, info.bConfigurationValue);
     const usb_config_desc_t *cfg;
     usb_host_get_active_config_descriptor(dev, &cfg);
+    s_roland = dd->idVendor == 0x0582;
     uint8_t iface, ep;
     uint16_t mps;
     if (!find_midi(cfg, &iface, &ep, &mps)) {

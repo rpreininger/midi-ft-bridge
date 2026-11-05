@@ -56,10 +56,18 @@ Audio out:
   handling; then the AG06 becomes the master clock. Fantom + AG06 together
   need a USB hub on the USB-A port (hub support is enabled), and the MIDI
   driver must then pick the Fantom (the AG06 also has a MIDI interface).
-- Not through the Fantom: in GENERIC mode it enumerates as USB 1.1
-  full-speed with one configuration holding only Audio Control (no
-  endpoints) + MIDI Streaming, so there is no class-compliant audio path;
-  VENDOR mode is Roland's proprietary driver protocol.
+- **Through the Fantom in VENDOR mode** (most promising single-cable path):
+  it then enumerates as 0582:0283, USB 2.0 high speed, class 0xFF but with
+  plain UAC1 format descriptors (+ Roland 0xF1 extras):
+  - playback: interface 1, alt 1 = 4 ch / alt 2 = 2 ch, 32-bit slots,
+    48 kHz, iso async OUT ep 0x0D (mps 116 / 60), no feedback endpoint
+    -> implicit feedback from the capture stream (as Linux does for Roland)
+  - capture: interface 2, alt 1 = 32 ch / alt 2 = 2 ch, iso IN ep 0x8E
+  - MIDI: interface 3 (0xFF/0x03), bulk 0x84 in, same USB-MIDI packets -
+    **works already** (pads play clips in VENDOR mode).
+  To do: iso OUT driver with implicit feedback; the Fantom becomes the
+  audio master clock. Downside: the Mac then needs Roland's driver.
+  In GENERIC mode the Fantom is USB 1.1 full speed, MIDI only.
 - Not the USB-C port: full-speed only, shares the PHY with flashing/console,
   and it is unknown whether it can source 5 V.
 
