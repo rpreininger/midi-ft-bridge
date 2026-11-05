@@ -1,7 +1,9 @@
 #include "ftc.h"
 
+#include <fcntl.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 static uint16_t rd16(const uint8_t *p) { return (uint16_t)(p[0] | p[1] << 8); }
 static uint32_t rd32(const uint8_t *p) { return (uint32_t)rd16(p) | (uint32_t)rd16(p + 2) << 16; }
@@ -58,14 +60,99 @@ int ftc_lz4_decode(const uint8_t *src, size_t src_len, uint8_t *dst, size_t dst_
     return (int)(op - dst);
 }
 
-int ftc_open(ftc_clip_t *c, const char *path, void *(*alloc)(size_t), size_t io_buf_size)
+// ---- reader ----------------------------------------------------------------
+
+static int rd_seek(ftc_reader_t *r, uint64_t pos)
 {
-    memset(c, 0, sizeof(*c));
-    if (!alloc) alloc = malloc;
+    if (r->fd < 0) {
+        if (pos > r->mem_len) return -1;
+        r->pos = pos;
+        return 0;
+    }
+    // inside the current buffer window: just move head
+    uint64_t win_start = r->pos - r->head;
+    if (pos >= win_start && pos <= win_start + r->tail) {
+        r->head = (size_t)(pos - win_start);
+        r->pos = pos;
+        return 0;
+    }
+    if (lseek(r->fd, (off_t)pos, SEEK_SET) < 0) return -1;
+    r->head = r->tail = 0;
+    r->pos = pos;
+    return 0;
+}
+
+// Read exactly n bytes (or fewer at EOF). Big reads bypass the buffer.
+static size_t rd_read(ftc_reader_t *r, void *dst, size_t n)
+{
+    uint8_t *d = dst;
+    if (r->fd < 0) {
+        uint64_t left = r->mem_len - r->pos;
+        if (n > left) n = (size_t)left;
+        memcpy(d, r->mem + r->pos, n);
+        r->pos += n;
+        return n;
+    }
+    size_t done = 0;
+    while (done < n) {
+        size_t avail = r->tail - r->head;
+        if (avail) {
+            size_t k = n - done < avail ? n - done : avail;
+            memcpy(d + done, r->buf + r->head, k);
+            r->head += k;
+            done += k;
+            continue;
+        }
+        size_t want = n - done;
+        if (want >= r->cap) {  // large: straight into the destination
+            ssize_t got = read(r->fd, d + done, want);
+            if (got <= 0) break;
+            done += (size_t)got;
+            // the window is now empty and starts at the new position
+            r->head = r->tail = 0;
+            r->pos += (size_t)got;
+            continue;
+        }
+        ssize_t got = read(r->fd, r->buf, r->cap);
+        if (got <= 0) break;
+        // buffer window starts at the current position
+        r->head = 0;
+        r->tail = (size_t)got;
+    }
+    // pos tracks bytes delivered from the buffer too
+    // (direct reads already advanced it above)
+    return done;
+}
+
+// rd_read advances pos for direct reads only; account buffered bytes here.
+static size_t rd_get(ftc_reader_t *r, void *dst, size_t n)
+{
+    if (r->fd < 0) return rd_read(r, dst, n);
+    uint64_t before_direct = r->pos;
+    size_t head0 = r->head, tail0 = r->tail;
+    (void)tail0;
+    size_t got = rd_read(r, dst, n);
+    // bytes taken from the buffer = got - (pos advanced by direct reads)
+    size_t direct = (size_t)(r->pos - before_direct);
+    r->pos += got - direct;
+    (void)head0;
+    return got;
+}
+
+static void rd_close(ftc_reader_t *r, void (*release)(void *))
+{
+    if (r->fd >= 0) close(r->fd);
+    if (r->buf) release(r->buf);
+    memset(r, 0, sizeof(*r));
+    r->fd = -1;
+}
+
+// ---- clip ----------------------------------------------------------------
+
+static int parse_and_alloc(ftc_clip_t *c, void *(*alloc)(size_t))
+{
     uint8_t h[64];
-    c->vf = fopen(path, "rb");
-    if (!c->vf) return -1;
-    if (fread(h, 1, 64, c->vf) != 64 || memcmp(h, "FTC1", 4) != 0) goto fail;
+    if (rd_get(&c->v, h, 64) != 64 || memcmp(h, "FTC1", 4) != 0) return -1;
     c->hdr.width = rd16(h + 4);
     c->hdr.height = rd16(h + 6);
     c->hdr.fps_num = rd16(h + 8);
@@ -78,45 +165,62 @@ int ftc_open(ftc_clip_t *c, const char *path, void *(*alloc)(size_t), size_t io_
     c->hdr.audio_bytes = rd64(h + 32);
     c->hdr.index_offset = rd64(h + 40);
     c->hdr.keyframe_interval = rd16(h + 48);
-    if (!c->hdr.width || !c->hdr.height || !c->hdr.fps_num || !c->hdr.fps_den) goto fail;
+    if (!c->hdr.width || !c->hdr.height || !c->hdr.fps_num || !c->hdr.fps_den) return -1;
 
     size_t fsz = (size_t)c->hdr.width * c->hdr.height * 3;
     c->frame = alloc(fsz);
     c->scratch = alloc(fsz);
     c->payload_cap = fsz + fsz / 255 + 64;  // LZ4 worst case
     c->payload = alloc(c->payload_cap);
-    if (!c->frame || !c->scratch || !c->payload) goto fail;
+    if (!c->frame || !c->scratch || !c->payload) return -1;
     memset(c->frame, 0, fsz);
 
-    // Position the video handle at frame 0 via the index (first entry).
-    uint8_t first[4];
     if (c->hdr.frame_count) {
-        if (fseek(c->vf, (long)c->hdr.index_offset, SEEK_SET) || fread(first, 1, 4, c->vf) != 4) goto fail;
-        if (fseek(c->vf, (long)rd32(first), SEEK_SET)) goto fail;
+        uint8_t first[4];
+        if (rd_seek(&c->v, c->hdr.index_offset) || rd_get(&c->v, first, 4) != 4) return -1;
+        if (rd_seek(&c->v, rd32(first))) return -1;
     }
-    if (io_buf_size) setvbuf(c->vf, NULL, _IOFBF, io_buf_size);
-
-    if (c->hdr.audio_rate && c->hdr.audio_bytes) {
-        c->af = fopen(path, "rb");
-        if (!c->af) goto fail;
-        if (io_buf_size) setvbuf(c->af, NULL, _IOFBF, io_buf_size);
-        if (fseek(c->af, (long)c->hdr.audio_offset, SEEK_SET)) goto fail;
-    }
+    c->has_audio = c->hdr.audio_rate && c->hdr.audio_bytes;
+    if (c->has_audio && rd_seek(&c->a, c->hdr.audio_offset)) return -1;
     return 0;
-fail:
-    // Buffers are leaked to the caller's ftc_close(); files closed there too.
-    return -1;
+}
+
+int ftc_open(ftc_clip_t *c, const char *path, void *(*alloc)(size_t), size_t io_buf_size)
+{
+    memset(c, 0, sizeof(*c));
+    c->v.fd = c->a.fd = -1;
+    if (!alloc) alloc = malloc;
+    if (!io_buf_size) io_buf_size = 64 * 1024;
+    c->v.fd = open(path, O_RDONLY);
+    c->a.fd = open(path, O_RDONLY);  // independent position for the audio stream
+    if (c->v.fd < 0 || c->a.fd < 0) return -1;
+    c->v.cap = c->a.cap = io_buf_size;
+    c->v.buf = alloc(io_buf_size);
+    c->a.buf = alloc(io_buf_size);
+    if (!c->v.buf || !c->a.buf) return -1;
+    return parse_and_alloc(c, alloc);
+}
+
+int ftc_open_mem(ftc_clip_t *c, const void *data, size_t len, void *(*alloc)(size_t))
+{
+    memset(c, 0, sizeof(*c));
+    c->v.fd = c->a.fd = -1;
+    if (!alloc) alloc = malloc;
+    c->v.mem = c->a.mem = data;
+    c->v.mem_len = c->a.mem_len = len;
+    return parse_and_alloc(c, alloc);
 }
 
 void ftc_close(ftc_clip_t *c, void (*release)(void *))
 {
     if (!release) release = free;
-    if (c->vf) fclose(c->vf);
-    if (c->af) fclose(c->af);
+    rd_close(&c->v, release);
+    rd_close(&c->a, release);
     if (c->frame) release(c->frame);
     if (c->scratch) release(c->scratch);
     if (c->payload) release(c->payload);
     memset(c, 0, sizeof(*c));
+    c->v.fd = c->a.fd = -1;
 }
 
 int ftc_decode_next(ftc_clip_t *c)
@@ -125,15 +229,14 @@ int ftc_decode_next(ftc_clip_t *c)
     size_t fsz = (size_t)c->hdr.width * c->hdr.height * 3;
 
     // Records are 4-byte aligned.
-    long pos = ftell(c->vf);
-    if (pos & 3) fseek(c->vf, 4 - (pos & 3), SEEK_CUR);
+    if (c->v.pos & 3) rd_seek(&c->v, (c->v.pos + 3) & ~(uint64_t)3);
 
     uint8_t fh[8];
-    if (fread(fh, 1, 8, c->vf) != 8) { c->errors++; return -1; }
+    if (rd_get(&c->v, fh, 8) != 8) { c->errors++; return -1; }
     uint32_t len = rd32(fh);
     uint8_t type = fh[4];
     if (len > c->payload_cap) { c->errors++; return -2; }
-    if (len && fread(c->payload, 1, len, c->vf) != len) { c->errors++; return -1; }
+    if (len && rd_get(&c->v, c->payload, len) != len) { c->errors++; return -1; }
     c->next_frame++;
 
     switch (type) {
@@ -174,10 +277,10 @@ int ftc_seek_forward(ftc_clip_t *c, uint32_t target)
 
 size_t ftc_read_audio(ftc_clip_t *c, void *dst, size_t n)
 {
-    if (!c->af) return 0;
+    if (!c->has_audio) return 0;
     uint64_t left = c->hdr.audio_bytes - c->audio_pos;
     if (n > left) n = (size_t)left;
-    size_t got = n ? fread(dst, 1, n, c->af) : 0;
+    size_t got = n ? rd_get(&c->a, dst, n) : 0;
     c->audio_pos += got;
     return got;
 }

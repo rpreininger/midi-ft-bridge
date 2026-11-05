@@ -25,16 +25,17 @@ def align(f, a):
         f.write(b'\0' * pad)
 
 
-def encode(src, dst, w, h, fps, rate, keyint, quiet=False):
+def encode(src, dst, w, h, fps, rate, keyint, quiet=False, start=None, duration=None):
+    trim = (['-ss', str(start)] if start else []) + (['-t', str(duration)] if duration else [])
     # Audio first: decode to a temp raw file next to dst so the container can
     # keep it contiguous ahead of the frames.
     tmp_audio = dst + '.pcm.tmp'
-    r = subprocess.run(['ffmpeg', '-v', 'error', '-y', '-i', src, '-vn',
+    r = subprocess.run(['ffmpeg', '-v', 'error', '-y', *trim, '-i', src, '-vn',
                         '-ac', '2', '-ar', str(rate), '-f', 's16le', tmp_audio])
     has_audio = r.returncode == 0 and os.path.getsize(tmp_audio) > 0
 
     vf = f'scale={w}:{h}:flags=neighbor,fps={fps}'
-    proc = subprocess.Popen(['ffmpeg', '-v', 'error', '-i', src, '-an', '-vf', vf,
+    proc = subprocess.Popen(['ffmpeg', '-v', 'error', *trim, '-i', src, '-an', '-vf', vf,
                              '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'],
                             stdout=subprocess.PIPE)
     fsize = w * h * 3
@@ -109,6 +110,8 @@ def main():
     ap.add_argument('--fps', type=int, default=25)
     ap.add_argument('--rate', type=int, default=48000)
     ap.add_argument('--keyint', type=int, default=50)
+    ap.add_argument('--start', type=float, help='cut: start time in seconds')
+    ap.add_argument('--duration', type=float, help='cut: length in seconds')
     a = ap.parse_args()
     w, h = map(int, a.size.lower().split('x'))
     if a.output and len(a.src) != 1:
@@ -116,7 +119,7 @@ def main():
     for src in a.src:
         dst = a.output or os.path.join(a.outdir or os.path.dirname(src),
                                        os.path.splitext(os.path.basename(src))[0] + '.ftc')
-        encode(src, dst, w, h, a.fps, a.rate, a.keyint)
+        encode(src, dst, w, h, a.fps, a.rate, a.keyint, start=a.start, duration=a.duration)
 
 
 if __name__ == '__main__':
