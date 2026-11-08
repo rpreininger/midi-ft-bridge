@@ -1,4 +1,5 @@
 #include "player.h"
+#include "usb_audio.h"
 
 #include <string.h>
 
@@ -115,7 +116,7 @@ static void audio_task(void *arg)
     size_t n;
     while (!s_audio_stop && (n = ftc_read_audio(&s_clip, buf, chunk)) > 0) {
         if (n < chunk) memset(buf + n, 0, chunk - n);
-        board_audio_write(buf, chunk);
+        if (!usb_audio_active() || !usb_audio_write(buf, chunk)) board_audio_write(buf, chunk);
         s_samples += n / 4;
     }
     free(buf);

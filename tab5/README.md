@@ -52,13 +52,16 @@ Audio out:
   ground-loop hum (run the Tab5 on battery or use an isolator) and Wi-Fi
   buzz at gig volume. Both ES8388 output pairs run at 0 dB analog (the codec
   driver leaves OUT2 at -30 dB).
-- USB audio to the AG06 is possible later on the **USB-A** port: AG06 =
-  Yamaha 0499:1757 behind its own internal hub, **UAC 2.0**, stereo 24-bit in
-  32-bit slots, async isochronous OUT (ep 0x01) with feedback (ep 0x81).
-  Needs a custom UAC2 driver (IDF's usb_host_uac is UAC1 only) incl. feedback
-  handling; then the AG06 becomes the master clock. Fantom + AG06 together
-  need a USB hub on the USB-A port (hub support is enabled), and the MIDI
-  driver must then pick the Fantom (the AG06 also has a MIDI interface).
+- **USB audio to the AG06 works** (`main/usb_audio.c`, own UAC2 driver; IDF's
+  usb_host_uac is UAC1 only). AG06MK2 = Yamaha 0499:1757, high speed, behind
+  its own internal hub; stereo 24-bit in 4-byte subslots, iso async OUT 0x01.
+  The explicit feedback endpoint (0x81, every 128 microframes) cannot be
+  scheduled by IDF's HCD (64-entry isoc list), so the capture stream (0x82)
+  is opened as implicit feedback: OUT packets follow the frames the AG06
+  delivers -> the AG06 is the clock (measured 48.000 kHz, error stable).
+  When it is plugged in, audio goes to USB only (jack silent, volume at the
+  mixer); unplugged -> back to the jack. Config `"usb_audio": "AG06"`
+  (default; `"off"` = jack only). Fantom + AG06 need a hub on USB-A.
 - **Through the Fantom in VENDOR mode** (most promising single-cable path):
   it then enumerates as 0582:0283, USB 2.0 high speed, class 0xFF but with
   plain UAC1 format descriptors (+ Roland 0xF1 extras):
@@ -90,7 +93,8 @@ Next steps:
 1. Test with the real panels (hotspot vs. joining the Cudy as STA).
 2. Measure the Wi-Fi upload speed of a big clip; panel shutdown button.
 3. Stage hardening: power loss during upload, battery runtime.
-4. Optional: UAC2 driver for the AG06; BLE panel via the C6.
+4. Long run test USB audio (gaps counter in the log every 30 s).
+5. Optional: Fantom VENDOR-mode audio; BLE panel via the C6.
 
 ## Tooling
 

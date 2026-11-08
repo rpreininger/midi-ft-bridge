@@ -25,6 +25,7 @@
 #include "esp_http_server.h"
 #include "esp_log.h"
 #include "midi_host.h"
+#include "usb_audio.h"
 #include "net.h"
 #include "player.h"
 #include "power.h"
@@ -64,7 +65,7 @@ static const char PAGE[] =
     "links.innerHTML='MIDI: <span class='+(j.midi?'ok':'bad')+'>'+(j.midi||'--')+'</span><br>WLAN '+j.ssid+': '"
     "+j.clients+' Client(s)<br>'+(j.mirrored?'Test-Modus (Streams an Client): ':'Panels: ')+p"
     "+(j.battery>=0?'<br>Akku: '+j.battery+'% ('+j.volts.toFixed(2)+' V)':'');"
-    "out.textContent=j.jack?'(Klinke)':'(Lautsprecher)';vol.textContent=j.volume;if(!drag)vr.value=j.volume;"
+    "out.textContent=j.usb?'(USB '+j.usb+' - Pegel am Mixer)':j.jack?'(Klinke)':'(Lautsprecher)';vol.textContent=j.volume;if(!drag)vr.value=j.volume;"
     "}catch(e){now.textContent='keine Verbindung'}}"
     "async function cl(){var j=await (await fetch('/clips')).json();"
     "clips.innerHTML=j.map(c=>'<tr><td><button class=play onclick=\"fetch(\\'/play?clip='+encodeURIComponent(c.name)"
@@ -96,11 +97,11 @@ static esp_err_t status_get(httpd_req_t *req)
     char buf[1024];
     int n = snprintf(buf, sizeof buf,
                      "{\"playing\":%s,\"clip\":\"%s\",\"frame\":%u,\"frames\":%u,\"fps\":%u,\"volume\":%d,"
-                     "\"jack\":%s,\"midi\":\"%s\",\"ssid\":\"%s\",\"clients\":%d,\"mirrored\":%s,"
+                     "\"jack\":%s,\"usb\":\"%s\",\"midi\":\"%s\",\"ssid\":\"%s\",\"clients\":%d,\"mirrored\":%s,"
                      "\"battery\":%d,\"volts\":%.2f,\"panels\":[",
                      st.playing ? "true" : "false", st.clip, (unsigned)st.frame, (unsigned)st.frames,
                      st.fps ? st.fps : 25, board_audio_get_volume(), board_audio_poll_jack() ? "true" : "false",
-                     midi_host_names(), s_cfg->net.ssid, net_ap_clients(), st.mirrored ? "true" : "false",
+                     usb_audio_name(), midi_host_names(), s_cfg->net.ssid, net_ap_clients(), st.mirrored ? "true" : "false",
                      bat ? pw.percent : -1, bat ? pw.volts : 0.0);
     for (int i = 0; i < st.npanels && n < (int)sizeof buf - 64; i++)
         n += snprintf(buf + n, sizeof buf - n, "%s{\"name\":\"%s\",\"ok\":%s}", i ? "," : "", s_cfg->panels[i].name,

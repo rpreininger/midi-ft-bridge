@@ -19,6 +19,7 @@ static void defaults(config_t *c)
     c->volume = 85;
     c->speaker_volume = 20;
     strcpy(c->midi_device, "FANTOM");
+    strcpy(c->usb_audio, "AG06");
     c->net.ap = true;
     strcpy(c->net.ssid, "FT-TAB5");
     strcpy(c->net.password, "flaschentaschen");
@@ -123,6 +124,10 @@ bool config_load(config_t *c, const char *path)
         c->net.channel = geti(t, "channel", c->net.channel);
         c->volume = geti(t, "volume", c->volume);
         c->speaker_volume = geti(t, "speaker_volume", c->speaker_volume);
+        if (cJSON_GetObjectItemCaseSensitive(t, "usb_audio")) {
+            c->usb_audio[0] = 0;
+            jstr(t, "usb_audio", c->usb_audio, sizeof c->usb_audio);
+        }
     }
     cJSON_Delete(root);
     return true;

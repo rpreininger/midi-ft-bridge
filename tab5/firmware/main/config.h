@@ -8,6 +8,7 @@
 //     "channel": 6, "ap_ip": "192.168.10.1",
 //     "volume": 85,                  0..100, jack / line out
 //     "speaker_volume": 20           0..100, internal speaker
+//     "usb_audio": "AG06"            UAC2 output device filter, "off" = jack
 //   }
 #pragma once
 
@@ -37,6 +38,7 @@ typedef struct {
     int volume;          // jack (line out to the mixer), default 85
     int speaker_volume;  // internal speaker, default 20
     char midi_device[32];  // USB name filter, default "FANTOM"
+    char usb_audio[32];    // UAC2 output name filter, default "AG06"; "off" = jack only
     net_config_t net;
     int npanels;
     cfg_panel_t panels[CFG_MAX_PANELS];

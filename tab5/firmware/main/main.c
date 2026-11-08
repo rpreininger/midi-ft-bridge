@@ -20,6 +20,7 @@
 #include "stream_test.h"
 #include "web.h"
 #include "midi_host.h"
+#include "usb_audio.h"
 #include "player.h"
 #include "display.h"
 #include "esp_timer.h"
@@ -254,7 +255,7 @@ static void show_status(const config_t *cfg)
 {
     player_status_t st;
     player_get_status(&st);
-    char a[96], b[48], v[24];
+    char a[96], b[48], v[48];
     if (st.playing) {
         unsigned p = st.frame / (st.fps ? st.fps : 25), t = st.frames / (st.fps ? st.fps : 25);
         snprintf(a, sizeof a, "> %s", st.clip);
@@ -263,7 +264,9 @@ static void show_status(const config_t *cfg)
         snprintf(a, sizeof a, "gestoppt");
         b[0] = 0;
     }
-    snprintf(v, sizeof v, "%s %d", board_audio_poll_jack() ? "Klinke" : "Lautspr.", board_audio_get_volume());
+    bool jack = board_audio_poll_jack();
+    if (usb_audio_active()) snprintf(v, sizeof v, "USB %s", usb_audio_name());
+    else snprintf(v, sizeof v, "%s %d", jack ? "Klinke" : "Lautspr.", board_audio_get_volume());
     power_state_t pw;
     char bat[32] = "";
     uint32_t bat_col = COL_DIM;
@@ -384,6 +387,7 @@ void app_main(void)
     player_start(&s_cfg);
     esp_err_t me = midi_host_start(s_cfg.midi_device);
     if (me != ESP_OK) ESP_LOGE(TAG, "USB host: %s", esp_err_to_name(me));
+    else usb_audio_start(s_cfg.usb_audio);
 
     // Without a config.json the panels are not reachable anyway (the rig is
     // not on this hotspot), so mirror the streams to the first client that
