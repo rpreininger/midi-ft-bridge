@@ -25,6 +25,15 @@ static void defaults(config_t *c)
     strcpy(c->net.password, "flaschentaschen");
     c->net.channel = 6;
     strcpy(c->net.ap_ip, "192.168.10.1");
+    // the stage panels (WISSEN/INSTALL.md): same addresses as on the Mango/Cudy
+    static const net_lease_t panels[] = {
+        {"88:a2:9e:75:ff:eb", "192.168.10.21"},  // A bigpanel
+        {"d8:3a:dd:de:93:19", "192.168.10.22"},  // B ericpanel
+        {"2c:cf:67:cd:6c:8c", "192.168.10.20"},  // C ralfpanel
+    };
+    memcpy(c->net.leases, panels, sizeof panels);
+    c->net.nleases = 3;
+    net_load_saved(&c->net);  // SSID/password set over the console
 }
 
 static int geti(const cJSON *o, const char *k, int def)
@@ -124,6 +133,18 @@ bool config_load(config_t *c, const char *path)
         c->net.channel = geti(t, "channel", c->net.channel);
         c->volume = geti(t, "volume", c->volume);
         c->speaker_volume = geti(t, "speaker_volume", c->speaker_volume);
+        const cJSON *ls = cJSON_GetObjectItemCaseSensitive(t, "leases");
+        if (cJSON_IsArray(ls)) {
+            c->net.nleases = 0;
+            const cJSON *e;
+            cJSON_ArrayForEach(e, ls) {
+                if (c->net.nleases >= NET_MAX_LEASES) break;
+                net_lease_t *q = &c->net.leases[c->net.nleases];
+                jstr(e, "mac", q->mac, sizeof q->mac);
+                jstr(e, "ip", q->ip, sizeof q->ip);
+                if (q->mac[0] && q->ip[0]) c->net.nleases++;
+            }
+        }
         if (cJSON_GetObjectItemCaseSensitive(t, "usb_audio")) {
             c->usb_audio[0] = 0;
             jstr(t, "usb_audio", c->usb_audio, sizeof c->usb_audio);

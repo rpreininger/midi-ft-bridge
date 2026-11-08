@@ -9,6 +9,9 @@
 //     "volume": 85,                  0..100, jack / line out
 //     "speaker_volume": 20           0..100, internal speaker
 //     "usb_audio": "AG06"            UAC2 output device filter, "off" = jack
+//     "leases": [{"mac": "88:a2:9e:75:ff:eb", "ip": "192.168.10.21"}, ...]
+//                                    fixed DHCP leases, default = the 3 panels
+//   SSID/password can also be stored on the device: console "wifi <ssid> <pw>"
 //   }
 #pragma once
 

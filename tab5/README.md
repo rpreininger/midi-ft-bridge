@@ -43,8 +43,13 @@ Behaviour (`main/main.c`, `main/player.c`):
 - Web page `http://192.168.10.1/` (verified on the iPhone): live status,
   clip list with play/stop, volume, upload (`POST /upload?name=X.ftc`,
   checked for the FTC1 magic, written via a temp file) and delete.
+- Hotspot DHCP: own server (`main/dhcpd.c`, IDF's dhcps has no reservations)
+  with fixed leases for the panels, same IPs as on the Mango/Cudy
+  (A .21, B .22, C .20 by MAC); others get .100-.199. Override with
+  `"leases"` in the `tab5` block. SSID/password can be stored on the device
+  (console `wifi <ssid> <password>`, then `reboot`) so it stays out of git.
 - USB-C console (115200, dtr/rts off): `play <Name>`, `stop`, `heap`,
-  `stress <s> [n]` (random clip every s seconds, a stop every 5th round).
+  `wifi ...`, `reboot`, `stress <s> [n]` (random clip every s seconds, a stop every 5th round).
 - `/sdcard/bench` -> run the decode/SD benchmark instead;
   `/sdcard/streamtest` -> the 60 s streaming load test.
 

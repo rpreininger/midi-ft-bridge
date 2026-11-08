@@ -20,6 +20,8 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "player.h"
+#include "net.h"
+#include "esp_system.h"
 
 static const char *TAG = "console";
 
@@ -76,8 +78,22 @@ static void task(void *arg)
             int s = 3, k = 50;
             sscanf(line + 6, "%d %d", &s, &k);
             stress(s < 1 ? 1 : s, k);
+        } else if (!strncmp(line, "wifi", 4)) {
+            char ssid[33] = "", pw[65] = "";
+            int k = sscanf(line + 4, " %32s %64[^\n]", ssid, pw);
+            if (k >= 1 && strcmp(ssid, "forget")) {
+                net_save_wifi(ssid, pw);
+                ESP_LOGI(TAG, "saved Wi-Fi '%s' (%d chars password) - 'reboot' to use it", ssid, (int)strlen(pw));
+            } else if (k == 1) {
+                net_save_wifi("", "");
+                ESP_LOGI(TAG, "saved Wi-Fi forgotten (defaults after reboot)");
+            } else {
+                ESP_LOGI(TAG, "wifi <ssid> <password> | wifi forget");
+            }
+        } else if (!strcmp(line, "reboot")) {
+            esp_restart();
         } else if (line[0]) {
-            ESP_LOGI(TAG, "commands: play <Name> | stop | heap | stress <s> [n]");
+            ESP_LOGI(TAG, "commands: play <Name> | stop | heap | stress <s> [n] | wifi <ssid> <pw> | wifi forget | reboot");
         }
     }
 }

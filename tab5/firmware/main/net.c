@@ -1,4 +1,6 @@
 #include "net.h"
+#include "dhcpd.h"
+#include "nvs.h"
 
 #include <string.h>
 
@@ -23,6 +25,13 @@ static char s_ip[16] = "0.0.0.0";
 static int s_clients;
 static char s_client_ip[16];
 static bool s_ap_netif_started;
+static const net_config_t *s_cfg;
+
+// Mirror/test target = the last client that is not a panel
+static void lease_cb(const char *ip, bool fixed)
+{
+    if (!fixed) strlcpy(s_client_ip, ip, sizeof s_client_ip);
+}
 
 // esp_wifi_remote does not wire the AP netif up on its own; M5's Tab5 demo
 // (hal_wifi.cpp, MIT) does it in the AP_START handler. Same here.
@@ -38,6 +47,13 @@ static void ap_start_handler(void *arg, esp_event_base_t base, int32_t id, void 
     esp_netif_set_mac(netif, mac);
     esp_netif_action_start(netif, base, id, data);
     s_ap_netif_started = true;
+    // IDF's dhcps has no reservations: replace it with ours (fixed panel IPs)
+    esp_netif_dhcps_stop(netif);
+    static bool dhcpd_running;
+    if (!dhcpd_running) {
+        dhcpd_running = true;
+        dhcpd_start(s_cfg->ap_ip[0] ? s_cfg->ap_ip : "192.168.10.1", s_cfg->leases, s_cfg->nleases, lease_cb);
+    }
     xEventGroupSetBits(s_ev, READY_BIT);
 }
 
@@ -87,14 +103,56 @@ static void ip_event(void *arg, esp_event_base_t base, int32_t id, void *data)
     }
 }
 
-esp_err_t net_start(const net_config_t *cfg)
+static void nvs_init(void)
 {
+    static bool done;
+    if (done) return;
     esp_err_t r = nvs_flash_init();
     if (r == ESP_ERR_NVS_NO_FREE_PAGES || r == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         nvs_flash_erase();
         r = nvs_flash_init();
     }
     ESP_ERROR_CHECK(r);
+    done = true;
+}
+
+void net_load_saved(net_config_t *cfg)
+{
+    nvs_init();
+    nvs_handle_t h;
+    if (nvs_open("wifi", NVS_READONLY, &h) != ESP_OK) return;
+    char ssid[33] = "", pw[65] = "";
+    size_t l1 = sizeof ssid, l2 = sizeof pw;
+    if (nvs_get_str(h, "ssid", ssid, &l1) == ESP_OK && ssid[0]) {
+        nvs_get_str(h, "pass", pw, &l2);
+        strlcpy(cfg->ssid, ssid, sizeof cfg->ssid);
+        strlcpy(cfg->password, pw, sizeof cfg->password);
+        ESP_LOGI(TAG, "saved Wi-Fi '%s' from NVS", ssid);
+    }
+    nvs_close(h);
+}
+
+esp_err_t net_save_wifi(const char *ssid, const char *password)
+{
+    nvs_init();
+    nvs_handle_t h;
+    esp_err_t e = nvs_open("wifi", NVS_READWRITE, &h);
+    if (e != ESP_OK) return e;
+    if (ssid && ssid[0]) {
+        nvs_set_str(h, "ssid", ssid);
+        nvs_set_str(h, "pass", password ? password : "");
+    } else {
+        nvs_erase_all(h);
+    }
+    e = nvs_commit(h);
+    nvs_close(h);
+    return e;
+}
+
+esp_err_t net_start(const net_config_t *cfg)
+{
+    nvs_init();
+    s_cfg = cfg;
     s_ev = xEventGroupCreate();
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
