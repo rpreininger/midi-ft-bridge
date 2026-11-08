@@ -1,0 +1,92 @@
+// Line commands on the USB-C console (for tests from the dev machine):
+//   play <Name>      start /sdcard/ftc/<Name>.ftc
+//   stop
+//   heap             memory + open state
+//   stress <s> [n]   n rounds (default 50): random clip every <s> seconds,
+//                    a stop every 5th round
+#include "console.h"
+
+#include <dirent.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <strings.h>
+
+#include "driver/usb_serial_jtag.h"
+#include "driver/usb_serial_jtag_vfs.h"
+#include "esp_heap_caps.h"
+#include "esp_log.h"
+#include "esp_random.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "player.h"
+
+static const char *TAG = "console";
+
+static void heap(void)
+{
+    ESP_LOGI(TAG, "dma free %u largest %u, internal free %u, psram free %u largest %u",
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL),
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM));
+}
+
+static void stress(int secs, int rounds)
+{
+    static char names[32][64];
+    int n = 0;
+    DIR *d = opendir("/sdcard/ftc");
+    struct dirent *e;
+    while (d && n < 32 && (e = readdir(d))) {
+        size_t l = strlen(e->d_name);
+        if (e->d_name[0] == '.' || l < 5 || strcasecmp(e->d_name + l - 4, ".ftc")) continue;
+        snprintf(names[n++], sizeof names[0], "/sdcard/ftc/%s", e->d_name);
+    }
+    if (d) closedir(d);
+    if (!n) return;
+    for (int r = 0; r < rounds; r++) {
+        if (r % 5 == 4) player_stop();
+        else player_play_path(names[esp_random() % n]);
+        vTaskDelay(pdMS_TO_TICKS(secs * 1000));
+        if (r % 10 == 9) heap();
+    }
+    ESP_LOGI(TAG, "stress done (%d rounds)", rounds);
+}
+
+static void task(void *arg)
+{
+    char line[96];
+    for (;;) {
+        if (!fgets(line, sizeof line, stdin)) {
+            vTaskDelay(pdMS_TO_TICKS(100));
+            continue;
+        }
+        line[strcspn(line, "\r\n")] = 0;
+        if (!strncmp(line, "play ", 5)) {
+            char path[100];
+            snprintf(path, sizeof path, "/sdcard/ftc/%.60s.ftc", line + 5);
+            player_play_path(path);
+        } else if (!strcmp(line, "stop")) {
+            player_stop();
+        } else if (!strcmp(line, "heap")) {
+            heap();
+        } else if (!strncmp(line, "stress", 6)) {
+            int s = 3, k = 50;
+            sscanf(line + 6, "%d %d", &s, &k);
+            stress(s < 1 ? 1 : s, k);
+        } else if (line[0]) {
+            ESP_LOGI(TAG, "commands: play <Name> | stop | heap | stress <s> [n]");
+        }
+    }
+}
+
+void console_start(void)
+{
+    usb_serial_jtag_driver_config_t c = USB_SERIAL_JTAG_DRIVER_CONFIG_DEFAULT();
+    if (usb_serial_jtag_driver_install(&c) != ESP_OK) return;
+    usb_serial_jtag_vfs_use_driver();
+    setvbuf(stdin, NULL, _IONBF, 0);
+    xTaskCreatePinnedToCore(task, "console", 6144, NULL, 2, NULL, 0);
+}

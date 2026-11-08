@@ -21,6 +21,7 @@
 #include "web.h"
 #include "midi_host.h"
 #include "usb_audio.h"
+#include "console.h"
 #include "player.h"
 #include "display.h"
 #include "esp_timer.h"
@@ -388,6 +389,7 @@ void app_main(void)
     esp_err_t me = midi_host_start(s_cfg.midi_device);
     if (me != ESP_OK) ESP_LOGE(TAG, "USB host: %s", esp_err_to_name(me));
     else usb_audio_start(s_cfg.usb_audio);
+    console_start();
 
     // Without a config.json the panels are not reachable anyway (the rig is
     // not on this hotspot), so mirror the streams to the first client that

@@ -43,6 +43,8 @@ Behaviour (`main/main.c`, `main/player.c`):
 - Web page `http://192.168.10.1/` (verified on the iPhone): live status,
   clip list with play/stop, volume, upload (`POST /upload?name=X.ftc`,
   checked for the FTC1 magic, written via a temp file) and delete.
+- USB-C console (115200, dtr/rts off): `play <Name>`, `stop`, `heap`,
+  `stress <s> [n]` (random clip every s seconds, a stop every 5th round).
 - `/sdcard/bench` -> run the decode/SD benchmark instead;
   `/sdcard/streamtest` -> the 60 s streaming load test.
 
@@ -93,7 +95,9 @@ Next steps:
 1. Test with the real panels (hotspot vs. joining the Cudy as STA).
 2. Measure the Wi-Fi upload speed of a big clip; panel shutdown button.
 3. Stage hardening: power loss during upload, battery runtime.
-4. Long run test USB audio (gaps counter in the log every 30 s).
+4. Internal DMA heap still shrinks slowly (188 KB idle at boot -> ~59 KB
+   after 6 h); harmless now that the SD buffers are allocated once, but
+   find the consumer (Wi-Fi/lwIP?).
 5. Optional: Fantom VENDOR-mode audio; BLE panel via the C6.
 
 ## Tooling
