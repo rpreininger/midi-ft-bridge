@@ -70,6 +70,8 @@ static int64_t s_captured, s_sent;
 static int64_t s_deficit;          // frames we counted as sent that never reached the device
 static int64_t s_t_in;             // esp_timer time of the last capture completion
 static uint32_t s_gap_out0, s_gap_in0;
+// extra frames kept in the device's buffer beyond where it settled at start
+static volatile int s_cushion = 0;
 static float s_err_avg;
 static bool s_have_ref;
 static int64_t s_ref;
@@ -130,6 +132,12 @@ static inline void put_sample(uint8_t *p, int sub, int16_t v)
     }
 }
 
+// tone-test state (defined with the tone test below)
+static volatile bool s_tone_on;
+static int64_t s_gap_t[64];
+static int s_ngap_t;
+static uint32_t s_gap_v[64];
+
 static void fill_out(usb_transfer_t *t)
 {
     // keep (captured - sent) at its reference: frames per transfer =
@@ -139,6 +147,10 @@ static void fill_out(usb_transfer_t *t)
     // come in 288-frame chunks), µframes the HCD had to leave out are made
     // up for on both sides, and dropped OUT packets count as not sent.
     uint32_t g_out = hcd_isoc_gap_uframes(0), g_in = hcd_isoc_gap_uframes(1);
+    if (g_out != s_gap_out0 && s_tone_on && s_ngap_t < 64) {
+        s_gap_v[s_ngap_t] = g_out - s_gap_out0;
+        s_gap_t[s_ngap_t++] = esp_timer_get_time();
+    }
     s_deficit += (int64_t)(g_out - s_gap_out0) * NOMINAL;
     s_captured += (int64_t)(g_in - s_gap_in0) * NOMINAL;
     s_gap_out0 = g_out, s_gap_in0 = g_in;
@@ -146,8 +158,10 @@ static void fill_out(usb_transfer_t *t)
     if (s_have_ref) {
         int64_t dt = esp_timer_get_time() - s_t_in;
         if (dt > 20000) dt = 20000;
-        float cap = (float)s_captured + dt * (RATE / 1e6f);
-        float e = cap - (float)(s_sent - s_deficit) - (float)s_ref;
+        // difference in integers first: the counters pass float precision
+        // (2^24 frames) after ~6 minutes
+        int64_t d = s_captured - (s_sent - s_deficit) - (s_ref - s_cushion);
+        float e = (float)d + dt * (RATE / 1e6f);
         // proportional: a deficit of n frames is made up within a few
         // transfers (up to 12 extra frames per 6 ms transfer)
         s_err_avg += (e - s_err_avg) * 0.3f;
@@ -212,21 +226,21 @@ static void out_cb(usb_transfer_t *t)
 // own output. A pure sine satisfies x[n] = 2cos(w) x[n-1] - x[n-2]; any
 // dropout, repeat or resync shows up as a large residual.
 #define TONE_HZ 1000
-static volatile bool s_tone_on;
 static float s_x1, s_x2, s_amp;
 static int s_hist;           // valid history samples (0..2)
-static uint32_t s_glitches, s_holdoff, s_tone_samples;
+static uint32_t s_glitches, s_holdoff, s_tone_samples, s_big, s_mid;
+static int64_t s_big_t[32];
+static int s_nbig_t;
 static uint32_t s_in_gap_seen;
 
 static void analyse_capture(usb_transfer_t *t)
 {
     const float c2 = 2.0f * cosf(2.0f * (float)M_PI * TONE_HZ / RATE);
     int fb = s_d.in_ch * s_d.in_sub;
-    uint32_t g = hcd_isoc_gap_uframes(1);
-    if (g != s_in_gap_seen) {  // capture stream itself has a hole: restart
-        s_in_gap_seen = g;
-        s_hist = 0;
-    }
+    // A capture transfer may itself have been retimed (a hole in what we
+    // analyse, not in what the device played): restart the predictor at
+    // every capture transfer, the gap counter can't say which one it was.
+    s_hist = 0;
     const uint8_t *base = t->data_buffer;
     for (int k = 0; k < t->num_isoc_packets; k++) {
         const uint8_t *p = base + k * s_d.in_mps;
@@ -246,6 +260,11 @@ static void analyse_capture(usb_transfer_t *t)
                 if (s_holdoff) s_holdoff--;
                 else if (r > 0.05f * s_amp) {
                     s_glitches++;
+                    if (r > 0.5f * s_amp) {  // dropout-sized
+                        s_big++;
+                        if (s_nbig_t < 32) s_big_t[s_nbig_t++] = esp_timer_get_time();
+                    }
+                    else if (r > 0.2f * s_amp) s_mid++;
                     s_holdoff = RATE / 100;  // one count per 10 ms
                 }
             }
@@ -254,6 +273,42 @@ static void analyse_capture(usb_transfer_t *t)
             if (s_hist < 2) s_hist++;
             s_tone_samples++;
         }
+    }
+}
+
+// Tone under real load: the player keeps decoding/streaming a clip, but
+// its audio is replaced by the test tone (see player.c audio_task).
+static volatile bool s_tone_replace;
+static double s_rph;
+bool usb_audio_tone_replace(int16_t *buf, int frames)
+{
+    if (!s_tone_replace) return false;
+    double d = 2 * M_PI * TONE_HZ / RATE;
+    for (int i = 0; i < frames; i++) {
+        buf[2 * i] = buf[2 * i + 1] = (int16_t)(8000 * sin(s_rph));
+        s_rph += d;
+        if (s_rph > 2 * M_PI) s_rph -= 2 * M_PI;
+    }
+    return true;
+}
+
+void usb_audio_tone_load(bool on)
+{
+    if (on) {
+        s_glitches = s_tone_samples = s_big = s_mid = 0;
+        s_nbig_t = s_ngap_t = 0;
+        s_hist = 0;
+        s_amp = 0;
+        s_in_gap_seen = hcd_isoc_gap_uframes(1);
+        s_tone_replace = true;
+        s_tone_on = true;
+    } else {
+        s_tone_on = false;
+        s_tone_replace = false;
+        for (int i = 0; i < s_nbig_t; i++) ESP_LOGI(TAG, "  dropout at %lld ms", s_big_t[i] / 1000);
+        for (int i = 0; i < s_ngap_t; i++) ESP_LOGI(TAG, "  out gap %u uframes at %lld ms", (unsigned)s_gap_v[i], s_gap_t[i] / 1000);
+        ESP_LOGI(TAG, "tone under load: %u glitches (%u dropout-sized >50%%, %u >20%%), %u samples (loopback level %.3f)",
+                 (unsigned)s_glitches, (unsigned)s_big, (unsigned)s_mid, (unsigned)s_tone_samples, s_amp);
     }
 }
 
@@ -516,6 +571,7 @@ static void client_task(void *arg)
         int64_t now = xTaskGetTickCount();
         if (s_active && now - last_log > pdMS_TO_TICKS(s_flowing ? 5000 : 30000)) {
             last_log = now;
+            if (s_tone_on) ESP_LOGI(TAG, "tone: %u glitches so far", (unsigned)s_glitches);
             ESP_LOGI(TAG, "retimed %u (gap uframes out %u in %u), deficit %lld, err %.1f gaps %u pkt_err %u min_fill %u max_cb_gap %.1f ms%s", (unsigned)hcd_isoc_retimed_count(), (unsigned)hcd_isoc_gap_uframes(0), (unsigned)hcd_isoc_gap_uframes(1), s_deficit, s_err_avg,
                      (unsigned)s_underruns, (unsigned)s_pkt_err, (unsigned)(s_min_fill == RING_FRAMES ? 0 : s_min_fill),
                      s_max_cb_gap / 1000.0, s_flowing ? " (playing)" : "");
@@ -544,6 +600,11 @@ esp_err_t usb_audio_start(const char *name_filter)
 }
 
 bool usb_audio_active(void) { return s_active; }
+void usb_audio_set_cushion(int frames)
+{
+    s_cushion = frames;
+    ESP_LOGI(TAG, "device cushion %d frames (%.2f ms)", frames, frames / 48.0);
+}
 uint32_t usb_audio_latency_frames(void) { return RING_FRAMES + NXFER * PKTS * NOMINAL; }
 const char *usb_audio_name(void) { return s_active ? s_d.name : ""; }
 

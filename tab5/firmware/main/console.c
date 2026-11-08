@@ -91,6 +91,26 @@ static void task(void *arg)
             } else {
                 ESP_LOGI(TAG, "wifi <ssid> <password> | wifi forget");
             }
+        } else if (!strncmp(line, "diag ", 5)) {  // diag <nosend 0|1> <nopreview 0|1>
+            extern volatile bool g_diag_nosend;
+            extern volatile int g_diag_preview_div;
+            int a = 0, b = 1;
+            sscanf(line + 5, "%d %d", &a, &b);
+            g_diag_nosend = a, g_diag_preview_div = b;
+            ESP_LOGI(TAG, "diag: sending %s, preview every %d. frame (0 = off)", a ? "OFF" : "on", b);
+        } else if (!strncmp(line, "cushion ", 8)) {
+            usb_audio_set_cushion(atoi(line + 8));
+        } else if (!strncmp(line, "toneclip ", 9)) {
+            char name[64] = "Intro";
+            int s = 60;
+            sscanf(line + 9, "%63s %d", name, &s);
+            char path[100];
+            snprintf(path, sizeof path, "/sdcard/ftc/%s.ftc", name);
+            usb_audio_tone_load(true);
+            player_play_path(path);
+            vTaskDelay(pdMS_TO_TICKS(s * 1000));
+            usb_audio_tone_load(false);
+            player_stop();
         } else if (!strncmp(line, "tone", 4)) {
             int s = 60;
             sscanf(line + 4, "%d", &s);

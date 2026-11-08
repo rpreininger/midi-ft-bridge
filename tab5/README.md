@@ -75,7 +75,15 @@ Audio out:
   are reported), and the rate controller makes up for them (proportional,
   up to 12 frames per transfer; capture count interpolated). Measured on
   Intro: 0 lost packets, error -0.3..3.4 frames. Console `tone <s>` plays
-  1 kHz and counts glitches via the AG06 LOOPBACK capture (not yet run).
+  1 kHz and counts glitches via the AG06 LOOPBACK capture; `toneclip <Name>
+  <s>` does the same while a clip plays (video, preview, streams = real load).
+  That test found the real culprits under load: the display preview did one
+  1.2 MB cache write-back per frame (now drawn in 8 KB bands) and the FT
+  sender shared core 1 with the USB ISR (now core 0). Result: tone under load
+  1-3 glitches per 30 s right after boot (was 200-500). Caveat: LOOPBACK also
+  records the AG06 inputs, so room noise counts too. Console `diag <nosend>
+  <preview_div>` switches the loads for such tests. Also fixed: the rate
+  controller lost precision after ~6 min (float of 2^24+ frame counters).
   When it is plugged in, audio goes to USB only (jack silent, volume at the
   mixer); unplugged -> back to the jack. Config `"usb_audio": "AG06"`
   (default; `"off"` = jack only). Fantom + AG06 need a hub on USB-A.

@@ -23,3 +23,8 @@ bool usb_audio_write(const void *pcm, size_t bytes);
 // 1 kHz test tone for secs seconds; with the AG06 on LOOPBACK the capture
 // stream is checked for dropouts (logged). Blocking.
 void usb_audio_tone_test(int secs);
+// Same check while a clip plays: its audio is replaced by the tone.
+void usb_audio_tone_load(bool on);
+// Keep this many extra frames queued in the device (more latency, more slack).
+void usb_audio_set_cushion(int frames);
+bool usb_audio_tone_replace(int16_t *buf, int frames);  // player hook

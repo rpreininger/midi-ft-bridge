@@ -108,6 +108,8 @@ static void draw_sync(int x0, int y0, int x1, int y1, const void *px)
     xSemaphoreGive(s_draw_lock);
 }
 
+#define BAND_COLS 2
+
 static void preview_task(void *arg)
 {
     for (;;) {
@@ -116,18 +118,25 @@ static void preview_task(void *arg)
         if (!src) continue;
         // Canvas (cx, cy) -> portrait panel: x runs along canvas rows
         // (rotated 90 degrees), each canvas pixel becomes SCALE x SCALE.
-        for (int cx = 0; cx < s_cw; cx++) {
-            // row order and column order both reversed = landscape the right way up
-            uint16_t *row0 = s_stage + (size_t)((s_cw - 1 - cx) * SCALE) * s_pw;
-            for (int cy = 0; cy < s_ch; cy++) {
-                const uint8_t *p = src + ((size_t)cy * s_cw + cx) * 3;
-                uint16_t c = (uint16_t)((p[0] & 0xF8) << 8 | (p[1] & 0xFC) << 3 | p[2] >> 3);
-                uint16_t *o = row0 + cy * SCALE;
-                o[0] = o[1] = o[2] = o[3] = c;
+        // Drawn in bands of BAND_COLS canvas columns (32 panel rows, 32 KB):
+        // one big draw meant a 1.2 MB cache write-back per frame, which
+        // stalls memory access long enough to make the USB audio ISR late.
+        for (int c0 = 0; c0 < s_cw; c0 += BAND_COLS) {
+            int c1 = c0 + BAND_COLS < s_cw ? c0 + BAND_COLS : s_cw;
+            for (int cx = c0; cx < c1; cx++) {
+                // row order and column order both reversed = landscape the right way up
+                uint16_t *row0 = s_stage + (size_t)((s_cw - 1 - cx) * SCALE) * s_pw;
+                for (int cy = 0; cy < s_ch; cy++) {
+                    const uint8_t *p = src + ((size_t)cy * s_cw + cx) * 3;
+                    uint16_t c = (uint16_t)((p[0] & 0xF8) << 8 | (p[1] & 0xFC) << 3 | p[2] >> 3);
+                    uint16_t *o = row0 + cy * SCALE;
+                    o[0] = o[1] = o[2] = o[3] = c;
+                }
+                for (int r = 1; r < SCALE; r++) memcpy(row0 + (size_t)r * s_pw, row0, (size_t)s_pw * 2);
             }
-            for (int r = 1; r < SCALE; r++) memcpy(row0 + (size_t)r * s_pw, row0, (size_t)s_pw * 2);
+            int rmin = (s_cw - c1) * SCALE, rmax = (s_cw - c0) * SCALE;  // [rmin, rmax)
+            draw_sync(s_px, s_py + rmin, s_px + s_pw, s_py + rmax, s_stage + (size_t)rmin * s_pw);
         }
-        draw_sync(s_px, s_py, s_px + s_pw, s_py + s_ph, s_stage);
     }
 }
 
@@ -222,7 +231,9 @@ esp_err_t display_init(i2c_master_bus_handle_t bus, int canvas_w, int canvas_h)
 
 void display_preview(const uint8_t *rgb)
 {
-    if (!s_task) return;
+    extern volatile int g_diag_preview_div;  // 0 = off, n = every n-th frame
+    static uint32_t cnt;
+    if (!s_task || !g_diag_preview_div || (cnt++ % g_diag_preview_div)) return;
     // Copy so the player can reuse its buffer; if the preview task is still
     // drawing the previous frame this one is simply skipped.
     if (eTaskGetState(s_task) != eBlocked) return;

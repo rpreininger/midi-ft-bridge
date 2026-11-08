@@ -75,6 +75,9 @@ static void open_senders(void)
     ESP_LOGI(TAG, "panel streams -> %s", s_test_ip[0] ? s_test_ip : "configured panel IPs");
 }
 
+volatile bool g_diag_nosend;   // console diagnostics
+volatile int g_diag_preview_div = 1;
+
 static void sender_task(void *arg)
 {
     open_senders();
@@ -88,7 +91,8 @@ static void sender_task(void *arg)
             open_senders();
         }
         int idx = s_ready;
-        if (idx >= 0) {
+        if (idx >= 0 && g_diag_nosend) s_ready = -1;
+        else if (idx >= 0) {
             s_ready = -1;
             int64_t a = esp_timer_get_time();
             for (int i = 0; i < s_cfg->npanels; i++) {
@@ -132,6 +136,7 @@ static void audio_task(void *arg)
     size_t n;
     while (!s_audio_stop && (n = ftc_read_audio(&s_clip, buf, chunk)) > 0) {
         if (n < chunk) memset(buf + n, 0, chunk - n);
+        usb_audio_tone_replace((int16_t *)buf, chunk / 4);
         if (!usb_audio_active() || !usb_audio_write(buf, chunk)) board_audio_write(buf, chunk);
         s_samples += n / 4;
     }
@@ -242,7 +247,7 @@ void player_start(const config_t *cfg)
     s_canvas[0] = psram_alloc(n);
     s_canvas[1] = psram_alloc(n);
     s_cmdq = xQueueCreate(8, sizeof(cmd_t));
-    xTaskCreatePinnedToCore(sender_task, "ft_send", 6144, NULL, 12, &s_sender, 1);
+    xTaskCreatePinnedToCore(sender_task, "ft_send", 6144, NULL, 12, &s_sender, 0);
     xTaskCreatePinnedToCore(play_task, "play", 6144, NULL, 13, NULL, 0);
 }
 
