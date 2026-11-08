@@ -230,6 +230,13 @@ bool player_note(uint8_t note)
     return false;
 }
 
+void player_play_path(const char *path)
+{
+    cmd_t c = {.cmd = CMD_PLAY};
+    strlcpy(c.clip, path, sizeof c.clip);
+    xQueueSend(s_cmdq, &c, 0);
+}
+
 void player_stop(void)
 {
     cmd_t c = {.cmd = CMD_STOP};

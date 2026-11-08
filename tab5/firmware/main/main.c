@@ -367,7 +367,7 @@ void app_main(void)
     ESP_ERROR_CHECK(net_start(&s_cfg.net));
     if (!net_wait_ready(20000)) { ESP_LOGE(TAG, "Wi-Fi did not come up"); return; }
     ESP_LOGI(TAG, "Wi-Fi up, %s %s", s_cfg.net.ap ? "AP" : "STA", net_ip());
-    web_start(board_audio_get_volume());
+    web_start(&s_cfg);
 
     if (sd && stat(BOARD_SD_MOUNT "/streamtest", &st) == 0) {  // touch /streamtest: old load test
         const char *clip = NULL;

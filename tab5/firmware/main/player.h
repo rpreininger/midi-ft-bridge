@@ -8,6 +8,8 @@
 void player_start(const config_t *cfg);
 // Play the clip mapped to note (replaces the running one). false if unmapped.
 bool player_note(uint8_t note);
+// Play a clip by path (web UI).
+void player_play_path(const char *path);
 // Stop and black the panels.
 void player_stop(void);
 // Optional: redirect all panel streams to one IP (test receiver), NULL = off.

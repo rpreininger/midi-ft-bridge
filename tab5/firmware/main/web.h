@@ -1,4 +1,6 @@
 #pragma once
 
-// Control page (http://<tab5-ip>/): volume slider, /volume?v=0..100
-void web_start(int initial_volume);
+#include "config.h"
+
+// Control page and API on port 80, see web.c for the endpoints.
+void web_start(const config_t *cfg);
