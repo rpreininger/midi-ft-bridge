@@ -21,6 +21,7 @@
 #include "freertos/task.h"
 #include "player.h"
 #include "net.h"
+#include "usb_audio.h"
 #include "esp_system.h"
 
 static const char *TAG = "console";
@@ -90,6 +91,12 @@ static void task(void *arg)
             } else {
                 ESP_LOGI(TAG, "wifi <ssid> <password> | wifi forget");
             }
+        } else if (!strncmp(line, "tone", 4)) {
+            int s = 60;
+            sscanf(line + 4, "%d", &s);
+            player_stop();
+            vTaskDelay(pdMS_TO_TICKS(300));
+            usb_audio_tone_test(s);
         } else if (!strcmp(line, "reboot")) {
             esp_restart();
         } else if (line[0]) {

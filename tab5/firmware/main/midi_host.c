@@ -231,13 +231,29 @@ static void client_task(void *arg)
     }
 }
 
+static void install_task(void *arg)
+{
+    struct { TaskHandle_t caller; esp_err_t err; } *ctx = arg;
+    const usb_host_config_t hc = {.skip_phy_setup = false, .intr_flags = ESP_INTR_FLAG_LEVEL3};
+    ctx->err = usb_host_install(&hc);
+    xTaskNotifyGive(ctx->caller);
+    vTaskDelete(NULL);
+}
+
 esp_err_t midi_host_start(const char *name_filter)
 {
     strlcpy(s_filter, name_filter ? name_filter : "", sizeof s_filter);
     s_q = xQueueCreate(64, sizeof(midi_msg_t));
     s_addrq = xQueueCreate(16, sizeof(uint8_t));
-    const usb_host_config_t hc = {.skip_phy_setup = false, .intr_flags = ESP_INTR_FLAG_LEVEL1};
-    esp_err_t e = usb_host_install(&hc);
+    // Install from core 1 at interrupt level 3: the interrupt is allocated on
+    // the calling core, and isochronous audio (USB audio out) loses packets
+    // ("skipped") when the ISR that chains the next transfer is late by more
+    // than a 125 us microframe - core 0 carries Wi-Fi/SDIO, SD and display.
+    TaskHandle_t self = xTaskGetCurrentTaskHandle();
+    struct { TaskHandle_t caller; esp_err_t err; } ctx = {self, ESP_FAIL};
+    xTaskCreatePinnedToCore(install_task, "usb_inst", 3072, &ctx, 20, NULL, 1);
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    esp_err_t e = ctx.err;
     if (e != ESP_OK) return e;
     xTaskCreatePinnedToCore(lib_task, "usb_lib", 4096, NULL, 15, NULL, 0);
     xTaskCreatePinnedToCore(client_task, "usb_midi", 6144, NULL, 14, NULL, 0);

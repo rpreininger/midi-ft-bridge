@@ -209,7 +209,8 @@ static void play_task(void *arg)
         uint64_t played;
         if (s_clip.has_audio) {
             uint64_t o = s_samples;
-            played = o > latency ? o - latency : 0;
+            uint64_t lat = usb_audio_active() ? usb_audio_latency_frames() : latency;
+            played = o > lat ? o - lat : 0;
         } else {
             played = (uint64_t)(esp_timer_get_time() - t0) * rate / 1000000;
         }

@@ -6,6 +6,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 #include "esp_err.h"
 
 // name_filter: substring of product/manufacturer or "vvvv:pppp" ("" = any
@@ -14,6 +15,11 @@ esp_err_t usb_audio_start(const char *name_filter);
 // true while a device is streaming; player audio then goes here, not I2S.
 bool usb_audio_active(void);
 const char *usb_audio_name(void);
+// Frames between usb_audio_write() and the device (ring + queued transfers).
+uint32_t usb_audio_latency_frames(void);
 // Blocking write of interleaved s16 stereo 48 kHz PCM. false if the device
 // went away (the caller falls back to I2S).
 bool usb_audio_write(const void *pcm, size_t bytes);
+// 1 kHz test tone for secs seconds; with the AG06 on LOOPBACK the capture
+// stream is checked for dropouts (logged). Blocking.
+void usb_audio_tone_test(int secs);

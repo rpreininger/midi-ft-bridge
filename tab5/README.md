@@ -66,6 +66,16 @@ Audio out:
   scheduled by IDF's HCD (64-entry isoc list), so the capture stream (0x82)
   is opened as implicit feedback: OUT packets follow the frames the AG06
   delivers -> the AG06 is the clock (measured 48.000 kHz, error stable).
+  Dropouts fixed (2026-11-08): the HCD chains isoc transfers from its ISR;
+  when that ISR is >125 us late, the first packets of the next transfer were
+  "not executed" (clicks, then 0.5 s distortion as the AG06's buffer ran dry).
+  Fixes: USB interrupt at level 3 on core 1, 6 ms transfers,
+  `components/usb` = IDF v5.5.1 usb component with a patch in `hcd_dwc.c`
+  (late buffers are retimed instead of skipped, and the left-out microframes
+  are reported), and the rate controller makes up for them (proportional,
+  up to 12 frames per transfer; capture count interpolated). Measured on
+  Intro: 0 lost packets, error -0.3..3.4 frames. Console `tone <s>` plays
+  1 kHz and counts glitches via the AG06 LOOPBACK capture (not yet run).
   When it is plugged in, audio goes to USB only (jack silent, volume at the
   mixer); unplugged -> back to the jack. Config `"usb_audio": "AG06"`
   (default; `"off"` = jack only). Fantom + AG06 need a hub on USB-A.
