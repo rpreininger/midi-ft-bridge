@@ -40,6 +40,9 @@ Behaviour (`main/main.c`, `main/player.c`):
   output: jack/line out default 85 (keep it high, set the level on the
   mixer), internal speaker default 20. A cable in the jack switches the
   speaker off. MIDI input defaults to devices named "FANTOM" (`midi_device`).
+- Web page `http://192.168.10.1/` (verified on the iPhone): live status,
+  clip list with play/stop, volume, upload (`POST /upload?name=X.ftc`,
+  checked for the FTC1 magic, written via a temp file) and delete.
 - `/sdcard/bench` -> run the decode/SD benchmark instead;
   `/sdcard/streamtest` -> the 60 s streaming load test.
 
@@ -80,12 +83,14 @@ Flashing notes:
 - Open the console with dtr=rts=False (pyserial defaults reset into
   download mode).
 
+Done: status on the display, battery, web page (status/play/stop/volume/
+upload/delete), MIDI hot-plug (devices behind a hub come and go).
+
 Next steps:
-1. Status on the display (clip, panels, MIDI, volume, Wi-Fi clients).
-2. Test with the real panels (hotspot vs. joining the Cudy as STA).
-3. Web page: clip upload over Wi-Fi, panel shutdown, status.
-4. Stage hardening: autostart, power loss, MIDI hot-plug.
-5. Optional: UAC2 driver for the AG06; BLE panel via the C6.
+1. Test with the real panels (hotspot vs. joining the Cudy as STA).
+2. Measure the Wi-Fi upload speed of a big clip; panel shutdown button.
+3. Stage hardening: power loss during upload, battery runtime.
+4. Optional: UAC2 driver for the AG06; BLE panel via the C6.
 
 ## Tooling
 
