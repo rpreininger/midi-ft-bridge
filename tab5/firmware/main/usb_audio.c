@@ -138,6 +138,26 @@ static int64_t s_gap_t[64];
 static int s_ngap_t;
 static uint32_t s_gap_v[64];
 
+// ---------------------------------------------------------------- recorder
+// rec: what we put into OUT packets and what the device captures (first two
+// channels, top 16 bits), side by side, for offline comparison on the Mac.
+static uint32_t *s_rec_out, *s_rec_in;
+static volatile uint32_t s_rec_n_out, s_rec_n_in, s_rec_cap;
+static volatile bool s_rec_on;
+static volatile int s_gain_q8 = 256;  // output gain, 8.8 fixed point
+
+void usb_audio_set_gain_db(float db)
+{
+    s_gain_q8 = (int)lrintf(256.0f * powf(10.0f, db / 20.0f));
+    ESP_LOGI(TAG, "USB output gain %.1f dB", db);
+}
+
+static inline int16_t gain(int16_t v)
+{
+    int32_t x = (v * s_gain_q8) >> 8;
+    return x > 32767 ? 32767 : x < -32768 ? -32768 : x;
+}
+
 static void fill_out(usb_transfer_t *t)
 {
     // keep (captured - sent) at its reference: frames per transfer =
@@ -189,8 +209,9 @@ static void fill_out(usb_transfer_t *t)
                 s_flow_xfers = 0;
                 s_underruns++;
             }
-            put_sample(p + off, s_d.out_sub, (int16_t)(fr & 0xFFFF));
-            put_sample(p + off + s_d.out_sub, s_d.out_sub, (int16_t)(fr >> 16));
+            if (s_rec_on && s_rec_n_out < s_rec_cap) s_rec_out[s_rec_n_out++] = fr;
+            put_sample(p + off, s_d.out_sub, gain((int16_t)(fr & 0xFFFF)));
+            put_sample(p + off + s_d.out_sub, s_d.out_sub, gain((int16_t)(fr >> 16)));
             for (int c = 2; c < s_d.out_ch; c++) put_sample(p + off + c * s_d.out_sub, s_d.out_sub, 0);
             off += fb;
         }
@@ -357,6 +378,24 @@ static void in_cb(usb_transfer_t *t)
     s_captured += n;
     s_t_in = esp_timer_get_time();
     if (s_tone_on) analyse_capture(t);
+    if (s_rec_on) {
+        const uint8_t *base = t->data_buffer;
+        for (int k = 0; k < t->num_isoc_packets; k++) {
+            bool ok = t->isoc_packet_desc[k].status == USB_TRANSFER_STATUS_COMPLETED;
+            int frames = ok ? t->isoc_packet_desc[k].actual_num_bytes / fb : NOMINAL;
+            const uint8_t *p = base + k * s_d.in_mps;
+            for (int f = 0; f < frames && s_rec_n_in < s_rec_cap; f++, p += fb) {
+                uint32_t fr = 0x80008000u;  // missed packet marker (-32768)
+                if (ok) {
+                    uint16_t l, r;
+                    memcpy(&l, p + s_d.in_sub - 2, 2);
+                    memcpy(&r, p + 2 * s_d.in_sub - 2, 2);
+                    fr = l | (uint32_t)r << 16;
+                }
+                s_rec_in[s_rec_n_in++] = fr;
+            }
+        }
+    }
     if (!s_have_ref && s_xfers > 50) {  // settle first, then lock the reference
         s_ref = s_captured - (s_sent - s_deficit);
         s_have_ref = true;
@@ -607,6 +646,57 @@ void usb_audio_set_cushion(int frames)
 }
 uint32_t usb_audio_latency_frames(void) { return RING_FRAMES + NXFER * PKTS * NOMINAL; }
 const char *usb_audio_name(void) { return s_active ? s_d.name : ""; }
+
+static void b64_dump(const char *tag, const uint32_t *d, uint32_t n)
+{
+    static const char T[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    static char line[4100];
+    const uint8_t *b = (const uint8_t *)d;
+    uint32_t len = n * 4;
+    printf("REC %s %u\n", tag, (unsigned)n);
+    for (uint32_t i = 0; i < len; i += 3072) {
+        uint32_t e = i + 3072 < len ? i + 3072 : len, k = 0;
+        for (uint32_t j = i; j < e; j += 3) {
+            uint32_t v = b[j] << 16 | (j + 1 < e ? b[j + 1] << 8 : 0) | (j + 2 < e ? b[j + 2] : 0);
+            line[k++] = T[v >> 18 & 63];
+            line[k++] = T[v >> 12 & 63];
+            line[k++] = j + 1 < e ? T[v >> 6 & 63] : '=';
+            line[k++] = j + 2 < e ? T[v & 63] : '=';
+        }
+        line[k] = 0;
+        printf("R%c %s\n", tag[0], line);
+        fflush(stdout);
+        vTaskDelay(1);
+    }
+    printf("REC %s end\n", tag);
+}
+
+void usb_audio_record(int secs)
+{
+    if (!s_active) {
+        ESP_LOGW(TAG, "rec: no USB audio device");
+        return;
+    }
+    uint32_t cap = (uint32_t)secs * RATE;
+    if (!s_rec_out) {
+        s_rec_out = heap_caps_malloc(20 * RATE * 4, MALLOC_CAP_SPIRAM);
+        s_rec_in = heap_caps_malloc(20 * RATE * 4, MALLOC_CAP_SPIRAM);
+        if (!s_rec_out || !s_rec_in) {
+            ESP_LOGE(TAG, "rec: no memory");
+            return;
+        }
+    }
+    s_rec_cap = cap;
+    s_rec_n_out = s_rec_n_in = 0;
+    s_rec_on = true;
+    while (s_rec_n_out < s_rec_cap || s_rec_n_in < s_rec_cap) vTaskDelay(pdMS_TO_TICKS(50));
+    s_rec_on = false;
+    ESP_LOGI(TAG, "rec: %u frames out, %u in (in sub %d, ch %d) - dumping", (unsigned)s_rec_n_out,
+             (unsigned)s_rec_n_in, s_d.in_sub, s_d.in_ch);
+    vTaskDelay(pdMS_TO_TICKS(200));
+    b64_dump("out", s_rec_out, s_rec_n_out);
+    b64_dump("in", s_rec_in, s_rec_n_in);
+}
 
 bool usb_audio_write(const void *pcm, size_t bytes)
 {

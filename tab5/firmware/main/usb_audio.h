@@ -27,4 +27,8 @@ void usb_audio_tone_test(int secs);
 void usb_audio_tone_load(bool on);
 // Keep this many extra frames queued in the device (more latency, more slack).
 void usb_audio_set_cushion(int frames);
+// Record <secs> s of the OUT stream and the capture stream, dump as base64.
+void usb_audio_record(int secs);
+// Digital gain on the USB output (0 dB = unchanged).
+void usb_audio_set_gain_db(float db);
 bool usb_audio_tone_replace(int16_t *buf, int frames);  // player hook

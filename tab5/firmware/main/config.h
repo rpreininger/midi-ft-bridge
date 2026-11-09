@@ -9,6 +9,7 @@
 //     "volume": 85,                  0..100, jack / line out
 //     "speaker_volume": 20           0..100, internal speaker
 //     "usb_audio": "AG06"            UAC2 output device filter, "off" = jack
+//     "usb_gain_db": -6              digital gain on the USB output (headroom)
 //     "leases": [{"mac": "88:a2:9e:75:ff:eb", "ip": "192.168.10.21"}, ...]
 //                                    fixed DHCP leases, default = the 3 panels
 //   SSID/password can also be stored on the device: console "wifi <ssid> <pw>"
@@ -41,6 +42,7 @@ typedef struct {
     int volume;          // jack (line out to the mixer), default 85
     int speaker_volume;  // internal speaker, default 20
     char midi_device[32];  // USB name filter, default "FANTOM"
+    float usb_gain_db;     // default -6 (loud masters distorted in the AG06 at 0 dB)
     char usb_audio[32];    // UAC2 output name filter, default "AG06"; "off" = jack only
     net_config_t net;
     int npanels;

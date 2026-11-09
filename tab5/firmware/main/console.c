@@ -117,10 +117,16 @@ static void task(void *arg)
             player_stop();
             vTaskDelay(pdMS_TO_TICKS(300));
             usb_audio_tone_test(s);
+        } else if (!strncmp(line, "usbgain ", 8)) {
+            usb_audio_set_gain_db(strtof(line + 8, NULL));
+        } else if (!strncmp(line, "rec", 3)) {
+            int s = 8;
+            sscanf(line + 3, "%d", &s);
+            usb_audio_record(s < 1 ? 1 : s > 20 ? 20 : s);
         } else if (!strcmp(line, "reboot")) {
             esp_restart();
         } else if (line[0]) {
-            ESP_LOGI(TAG, "commands: play <Name> | stop | heap | stress <s> [n] | wifi <ssid> <pw> | wifi forget | reboot");
+            ESP_LOGI(TAG, "commands: play <Name> | stop | heap | stress <s> [n] | wifi <ssid> <pw> | wifi forget | reboot | tone <s> | toneclip <Name> <s> | rec <s> | usbgain <dB> | diag <a> <b>");
         }
     }
 }

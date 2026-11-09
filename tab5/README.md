@@ -86,7 +86,11 @@ Audio out:
   controller lost precision after ~6 min (float of 2^24+ frame counters).
   When it is plugged in, audio goes to USB only (jack silent, volume at the
   mixer); unplugged -> back to the jack. Config `"usb_audio": "AG06"`
-  (default; `"off"` = jack only). Fantom + AG06 need a hub on USB-A.
+  (default; `"off"` = jack only). `"usb_gain_db": -6` (default): at 0 dB
+  loud masters (Intro peaks at -0.2 dBFS) sounded distorted through the
+  AG06 although the stream is bit-exact (verified with `rec <s>`, which
+  records sent + loopback-captured audio and dumps it as base64 on the
+  console; `usbgain <dB>` changes it live). Fantom + AG06 need a hub on USB-A.
 - **Through the Fantom in VENDOR mode** (most promising single-cable path):
   it then enumerates as 0582:0283, USB 2.0 high speed, class 0xFF but with
   plain UAC1 format descriptors (+ Roland 0xF1 extras):
