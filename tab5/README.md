@@ -118,8 +118,14 @@ Flashing notes:
 Done: status on the display, battery, web page (status/play/stop/volume/
 upload/delete), MIDI hot-plug (devices behind a hub come and go).
 
+Real panels (2026-11-10): all three Pi panels join the Tab5 hotspot
+(SSID strato_accesspoint, fixed leases .20/.21/.22) and show the clips;
+25 fps, ~19 ms send time per frame, no lost tiles. Without a config.json
+the streams go to the panels as soon as one joins (otherwise to the first
+phone, as a test load).
+
 Next steps:
-1. Test with the real panels (hotspot vs. joining the Cudy as STA).
+1. Long run with the real panels; Fantom + AG06 through a USB 2.0 hub.
 2. Measure the Wi-Fi upload speed of a big clip; panel shutdown button.
 3. Stage hardening: power loss during upload, battery runtime.
 4. Internal DMA heap still shrinks slowly (188 KB idle at boot -> ~59 KB
