@@ -24,6 +24,7 @@ static EventGroupHandle_t s_ev;
 static char s_ip[16] = "0.0.0.0";
 static int s_clients;
 static char s_client_ip[16];
+static volatile bool s_panel_seen;  // a fixed-lease panel got its address
 static bool s_ap_netif_started;
 static const net_config_t *s_cfg;
 
@@ -31,6 +32,7 @@ static const net_config_t *s_cfg;
 static void lease_cb(const char *ip, bool fixed)
 {
     if (!fixed) strlcpy(s_client_ip, ip, sizeof s_client_ip);
+    else s_panel_seen = true;
 }
 
 // esp_wifi_remote does not wire the AP netif up on its own; M5's Tab5 demo
@@ -215,3 +217,4 @@ const char *net_ip(void) { return s_ip; }
 int net_ap_clients(void) { return s_clients; }
 
 const char *net_ap_client_ip(void) { return s_client_ip[0] ? s_client_ip : NULL; }
+bool net_ap_panel_seen(void) { return s_panel_seen; }

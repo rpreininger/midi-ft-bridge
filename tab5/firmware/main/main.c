@@ -394,9 +394,10 @@ void app_main(void)
     }
     console_start();
 
-    // Without a config.json the panels are not reachable anyway (the rig is
-    // not on this hotspot), so mirror the streams to the first client that
-    // joins - lets a phone stand in as the load for testing.
+    // Without a config.json and without panels on the hotspot, mirror the
+    // streams to the client that joins - lets a phone stand in as the load
+    // for testing. As soon as a panel (fixed lease) joins, the streams go to
+    // the panels for good.
     bool mirror = !s_have_config;
     const char *mirrored = NULL;
     int64_t next_status = 0;
@@ -418,6 +419,11 @@ void app_main(void)
             } else if (type == 0xB0 && m.d1 == 7) {
                 board_audio_set_volume(m.d2 * 100 / 127);
             }
+        }
+        if (mirror && s_cfg.net.ap && net_ap_panel_seen()) {
+            mirror = false;
+            if (mirrored) player_set_test_target(NULL);
+            ESP_LOGI(TAG, "panel on the hotspot: streams go to the panels");
         }
         if (mirror && s_cfg.net.ap) {
             const char *c = net_ap_client_ip();

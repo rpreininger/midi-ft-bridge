@@ -35,3 +35,5 @@ const char *net_ip(void);
 int net_ap_clients(void);
 // IP the AP handed out last (NULL until a client has joined).
 const char *net_ap_client_ip(void);
+// true once a panel (fixed DHCP lease) has joined the hotspot
+bool net_ap_panel_seen(void);
