@@ -27,6 +27,7 @@
 #include "midi_host.h"
 #include "usb_audio.h"
 #include "net.h"
+#include "panel_off.h"
 #include "player.h"
 #include "power.h"
 
@@ -52,10 +53,14 @@ static const char PAGE[] =
     "onchange=\"fetch('/volume?v='+this.value)\"></div>"
     "<div class=box><button class=stop onclick=\"fetch('/stop')\">&#9632; Stop</button>"
     "<table id=clips></table></div>"
+    "<div class=box><b>Panels</b> <button onclick=\"po('/panelping')\">Verbindung pr&uuml;fen</button>"
+    "<button class=stop onclick=\"if(confirm('Alle Panels herunterfahren?'))po('/paneloff')\">Panels ausschalten</button>"
+    "<pre id=pm></pre></div>"
     "<div class=box><b>Clip hochladen</b> (.ftc aus tools/ftc_encode.py)<br>"
     "<input type=file id=f accept='.ftc' multiple> <button onclick=up()>Hochladen</button>"
     "<progress id=pr value=0 max=1></progress><div id=um></div></div>"
     "<script>"
+    "async function po(u){pm.textContent='...';pm.textContent=await (await fetch(u)).text()}"
     "function t(s){var m=Math.floor(s/60),r=Math.floor(s%60);return m+':'+(r<10?'0':'')+r}"
     "var drag=false;vr.onpointerdown=()=>drag=true;vr.onpointerup=()=>drag=false;"
     "async function st(){try{var j=await (await fetch('/status')).json();"
@@ -238,6 +243,17 @@ static esp_err_t upload_post(httpd_req_t *req)
     return httpd_resp_sendstr(req, "ok");
 }
 
+// Panel shutdown / endpoint check (panel_off.c); blocks up to 3 s per panel
+static esp_err_t panel_get(httpd_req_t *req)
+{
+    static char rep[400];
+    bool off = strstr(req->uri, "off") != NULL;
+    if (off) panel_off_all(rep, sizeof rep);
+    else panel_off_ping(rep, sizeof rep);
+    httpd_resp_set_type(req, "text/plain; charset=utf-8");
+    return httpd_resp_sendstr(req, rep);
+}
+
 static esp_err_t delete_get(httpd_req_t *req)
 {
     char name[72], path[100];
@@ -271,6 +287,8 @@ void web_start(const config_t *cfg)
         {.uri = "/volume", .method = HTTP_GET, .handler = volume_get},
         {.uri = "/upload", .method = HTTP_POST, .handler = upload_post},
         {.uri = "/delete", .method = HTTP_GET, .handler = delete_get},
+        {.uri = "/panelping", .method = HTTP_GET, .handler = panel_get},
+        {.uri = "/paneloff", .method = HTTP_GET, .handler = panel_get},
     };
     for (size_t i = 0; i < sizeof uris / sizeof uris[0]; i++) httpd_register_uri_handler(h, &uris[i]);
     ESP_LOGI(TAG, "control page on port 80");

@@ -19,6 +19,7 @@
 #include "esp_random.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "panel_off.h"
 #include "player.h"
 #include "net.h"
 #include "usb_audio.h"
@@ -91,6 +92,16 @@ static void task(void *arg)
             } else {
                 ESP_LOGI(TAG, "wifi <ssid> <password> | wifi forget");
             }
+        } else if (!strncmp(line, "token", 5)) {  // token <hex> | token forget
+            char t[80] = "";
+            sscanf(line + 5, " %79s", t);
+            if (!t[0]) ESP_LOGI(TAG, "token <hex> | token forget  (shutdown %s)", panel_off_has_token() ? "armed" : "off");
+            else if (panel_off_set_token(strcmp(t, "forget") ? t : ""))
+                ESP_LOGI(TAG, "panel shutdown token %s", strcmp(t, "forget") ? "saved" : "forgotten");
+        } else if (!strcmp(line, "panelping") || !strcmp(line, "paneloff")) {
+            static char rep[400];
+            int n = line[5] == 'p' ? panel_off_ping(rep, sizeof rep) : panel_off_all(rep, sizeof rep);
+            ESP_LOGI(TAG, "%s: %d ok\n%s", line, n, rep);
         } else if (!strncmp(line, "diag ", 5)) {  // diag <nosend 0|1> <nopreview 0|1>
             extern volatile bool g_diag_nosend;
             extern volatile int g_diag_preview_div;
@@ -126,7 +137,7 @@ static void task(void *arg)
         } else if (!strcmp(line, "reboot")) {
             esp_restart();
         } else if (line[0]) {
-            ESP_LOGI(TAG, "commands: play <Name> | stop | heap | stress <s> [n] | wifi <ssid> <pw> | wifi forget | reboot | tone <s> | toneclip <Name> <s> | rec <s> | usbgain <dB> | diag <a> <b>");
+            ESP_LOGI(TAG, "commands: play <Name> | stop | heap | stress <s> [n] | wifi <ssid> <pw> | wifi forget | token <hex> | panelping | paneloff | reboot | tone <s> | toneclip <Name> <s> | rec <s> | usbgain <dB> | diag <a> <b>");
         }
     }
 }

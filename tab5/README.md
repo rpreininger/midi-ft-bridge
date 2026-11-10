@@ -124,6 +124,13 @@ Real panels (2026-11-10): all three Pi panels join the Tab5 hotspot
 the streams go to the panels as soon as one joins (otherwise to the first
 phone, as a test load).
 
+Panel shutdown: web page "Panels ausschalten" (or console `paneloff`;
+`panelping` checks the endpoints) calls the panels' HTTP endpoint
+(setup/panel-shutdown-service.sh, port 8081). The shared token is never in
+git: `shutdown_token` in config.json, or stored on the device with the
+console command `token <hex>` (NVS, survives reflashing). Verified
+2026-11-10: all three panels powered off.
+
 Next steps:
 1. Long run with the real panels; Fantom + AG06 through a USB 2.0 hub.
 2. Measure the Wi-Fi upload speed of a big clip; panel shutdown button.
@@ -131,7 +138,9 @@ Next steps:
 4. Internal DMA heap still shrinks slowly (188 KB idle at boot -> ~59 KB
    after 6 h); harmless now that the SD buffers are allocated once, but
    find the consumer (Wi-Fi/lwIP?).
-5. Optional: Fantom VENDOR-mode audio; BLE panel via the C6.
+5. BLE panel (iPixel) via the C6: the C6 firmware reports "HCI over SDIO,
+   BLE only", so a NimBLE host on the P4 can drive it (started, paused).
+6. Optional: Fantom VENDOR-mode audio.
 
 ## Tooling
 

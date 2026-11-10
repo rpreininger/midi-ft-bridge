@@ -18,6 +18,7 @@ static void defaults(config_t *c)
     c->stop_note = -1;
     c->volume = 85;
     c->speaker_volume = 20;
+    c->shutdown_port = 8081;
     strcpy(c->midi_device, "FANTOM");
     strcpy(c->usb_audio, "AG06");
     c->usb_gain_db = -6;
@@ -89,6 +90,8 @@ bool config_load(config_t *c, const char *path)
     c->video_h = geti(root, "video_height", c->video_h);
     c->midi_channel = geti(root, "midi_channel", c->midi_channel);
     c->stop_note = geti(root, "stop_note", c->stop_note);
+    c->shutdown_port = geti(root, "shutdown_port", c->shutdown_port);
+    jstr(root, "shutdown_token", c->shutdown_token, sizeof c->shutdown_token);
     // Same key as the Mac app (a CoreMIDI display-name substring there). An
     // explicit "" accepts every USB-MIDI device.
     if (cJSON_GetObjectItemCaseSensitive(root, "midi_device")) {

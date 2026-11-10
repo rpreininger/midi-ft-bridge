@@ -22,6 +22,7 @@
 #include "midi_host.h"
 #include "usb_audio.h"
 #include "console.h"
+#include "panel_off.h"
 #include "player.h"
 #include "display.h"
 #include "esp_timer.h"
@@ -357,6 +358,7 @@ void app_main(void)
         s_cfg.npanels = 3;
     }
     config_log(&s_cfg);
+    panel_off_init(&s_cfg);
 
     esp_err_t ae = board_audio_init(48000);
     if (ae == ESP_OK) board_audio_default_volumes(s_cfg.volume, s_cfg.speaker_volume);

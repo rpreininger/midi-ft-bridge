@@ -44,6 +44,8 @@ typedef struct {
     char midi_device[32];  // USB name filter, default "FANTOM"
     float usb_gain_db;     // default -6 (loud masters distorted in the AG06 at 0 dB)
     char usb_audio[32];    // UAC2 output name filter, default "AG06"; "off" = jack only
+    int shutdown_port;        // panels' HTTP shutdown endpoint, default 8081
+    char shutdown_token[80];  // shared secret; never in git - or "token <hex>" on the console
     net_config_t net;
     int npanels;
     cfg_panel_t panels[CFG_MAX_PANELS];
