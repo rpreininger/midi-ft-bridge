@@ -138,8 +138,13 @@ Next steps:
 4. Internal DMA heap still shrinks slowly (188 KB idle at boot -> ~59 KB
    after 6 h); harmless now that the SD buffers are allocated once, but
    find the consumer (Wi-Fi/lwIP?).
-5. BLE panel (iPixel) via the C6: the C6 firmware reports "HCI over SDIO,
-   BLE only", so a NimBLE host on the P4 can drive it (started, paused).
+5. BLE panel (iPixel): `ble_panel.c` (NimBLE on the P4, HCI over the C6)
+   finds, connects and shows frames (ROM-deflate PNG; this panel never sends
+   the protocol's ACK, so the wait after a window drops to 60 ms). But the C6
+   is ONE radio for Wi-Fi and BLE: with the three Wi-Fi panels streaming,
+   GATT discovery times out (2026-11-11). Off by default ("tab5":
+   {"ble_panel": true} enables it). Plan instead: replace the iPixel by an
+   ESP32 + 32x16 HUB75 panel that joins the hotspot as a 4th FT panel.
 6. Optional: Fantom VENDOR-mode audio.
 
 ## Tooling

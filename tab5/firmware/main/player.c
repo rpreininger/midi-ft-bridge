@@ -1,4 +1,5 @@
 #include "player.h"
+#include "ble_panel.h"
 #include "usb_audio.h"
 
 #include <errno.h>
@@ -99,6 +100,7 @@ static void sender_task(void *arg)
                 const cfg_panel_t *p = &s_cfg->panels[i];
                 ft_sender_send(&s_snd[i], s_canvas[idx], s_cfg->video_w, p->src_x, p->src_y, p->src_w, p->src_h);
             }
+            ble_panel_offer(s_canvas[idx], s_cfg->video_w);  // takes a frame only when it is free
             int64_t d = esp_timer_get_time() - a;
             busy += d;
             if (d > worst) worst = d;

@@ -18,6 +18,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include "ble_panel.h"
 #include "net.h"
 
 #define CFG_MAX_PANELS 8
@@ -46,6 +47,7 @@ typedef struct {
     char usb_audio[32];    // UAC2 output name filter, default "AG06"; "off" = jack only
     int shutdown_port;        // panels' HTTP shutdown endpoint, default 8081
     char shutdown_token[80];  // shared secret; never in git - or "token <hex>" on the console
+    ble_panel_cfg_t ble;      // the iPixel BLE panel (type "ble" in panels)
     net_config_t net;
     int npanels;
     cfg_panel_t panels[CFG_MAX_PANELS];

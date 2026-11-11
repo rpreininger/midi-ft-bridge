@@ -19,6 +19,11 @@ static void defaults(config_t *c)
     c->volume = 85;
     c->speaker_volume = 20;
     c->shutdown_port = 8081;
+    // the rig's iPixel panel (Mac config.json): 32x16 at the right of the canvas.
+    // OFF by default: with the Wi-Fi panels streaming, the C6 (one radio for
+    // Wi-Fi and BLE) gives BLE no airtime - GATT discovery times out. Only
+    // "tab5": {"ble_panel": true} turns it on (tests without Wi-Fi panels).
+    c->ble = (ble_panel_cfg_t){false, "LED_BLE_25F1E13D", 256, 0, 32, 16, 80, 10};
     strcpy(c->midi_device, "FANTOM");
     strcpy(c->usb_audio, "AG06");
     c->usb_gain_db = -6;
@@ -103,7 +108,18 @@ bool config_load(config_t *c, const char *path)
     cJSON_ArrayForEach(p, cJSON_GetObjectItemCaseSensitive(root, "panels")) {
         char type[16] = "ft";
         jstr(p, "type", type, sizeof type);
-        if (strcmp(type, "ft") != 0) continue;  // BLE panel: not on the Tab5 (yet)
+        if (!strcmp(type, "ble")) {
+            ble_panel_cfg_t *b = &c->ble;  // geometry only; "tab5.ble_panel" enables it
+            jstr(p, "ble_name", b->name, sizeof b->name);
+            b->src_x = geti(p, "src_x", b->src_x);
+            b->src_y = geti(p, "src_y", b->src_y);
+            b->src_w = geti(p, "src_w", b->src_w);
+            b->src_h = geti(p, "src_h", b->src_h);
+            b->brightness = geti(p, "brightness", b->brightness);
+            b->max_fps = geti(p, "max_fps", b->max_fps);
+            continue;
+        }
+        if (strcmp(type, "ft") != 0) continue;
         if (c->npanels >= CFG_MAX_PANELS) break;
         cfg_panel_t *q = &c->panels[c->npanels++];
         jstr(p, "name", q->name, sizeof q->name);
@@ -131,6 +147,8 @@ bool config_load(config_t *c, const char *path)
         char mode[8] = "";
         jstr(t, "wifi_mode", mode, sizeof mode);
         if (mode[0]) c->net.ap = strcmp(mode, "sta") != 0;
+        const cJSON *bp = cJSON_GetObjectItemCaseSensitive(t, "ble_panel");
+        if (cJSON_IsBool(bp)) c->ble.enabled = cJSON_IsTrue(bp);
         jstr(t, "ssid", c->net.ssid, sizeof c->net.ssid);
         jstr(t, "password", c->net.password, sizeof c->net.password);
         jstr(t, "ap_ip", c->net.ap_ip, sizeof c->net.ap_ip);

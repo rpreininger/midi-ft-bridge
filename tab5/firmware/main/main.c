@@ -22,6 +22,7 @@
 #include "midi_host.h"
 #include "usb_audio.h"
 #include "console.h"
+#include "ble_panel.h"
 #include "panel_off.h"
 #include "player.h"
 #include "display.h"
@@ -372,6 +373,7 @@ void app_main(void)
 
     ESP_ERROR_CHECK(net_start(&s_cfg.net));
     if (!net_wait_ready(20000)) { ESP_LOGE(TAG, "Wi-Fi did not come up"); return; }
+    ble_panel_start(&s_cfg.ble);  // after Wi-Fi: BLE shares the C6 link
     ESP_LOGI(TAG, "Wi-Fi up, %s %s", s_cfg.net.ap ? "AP" : "STA", net_ip());
     web_start(&s_cfg);
 
