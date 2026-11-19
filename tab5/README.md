@@ -145,6 +145,13 @@ Next steps:
    GATT discovery times out (2026-11-11). Off by default ("tab5":
    {"ble_panel": true} enables it). Plan instead: replace the iPixel by an
    ESP32 + 32x16 HUB75 panel that joins the hotspot as a 4th FT panel.
+   **Done differently (2026-11-19):** the SID synth's display (Guition
+   JC4827W543, ESP32-S3, repo EZ-AG-hexmono branch `sid-guition`) is panel
+   `D_sidpanel` - 192.168.10.23, canvas area 256,0 32x16, fixed lease for
+   44:bd:8d:7a:6d:e4, both in the built-in defaults (`main.c`, `config.c`;
+   the SD card has no config.json). It shows the 32x16 picture with every
+   pixel as a 15x15 block. Verified with `play Pixel` (Intro is black there).
+   Built and flashed on the Windows PC with ESP-IDF 5.5.1 (COM13).
 6. Optional: Fantom VENDOR-mode audio.
 
 ## Tooling

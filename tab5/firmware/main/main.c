@@ -349,14 +349,17 @@ void app_main(void)
         if (s_cfg.stop_note < 0) s_cfg.stop_note = 51;
     }
     if (s_cfg.npanels == 0) {
-        // the stage rig from the Mac config.json
+        // the stage rig from the Mac config.json. D replaces the iPixel BLE
+        // panel: the SID synth's display (Guition JC4827W543, EZ-AG-hexmono
+        // branch sid-guition) shows the same 32x16 area of the canvas.
         static const cfg_panel_t rig[] = {
             {"A_bigpanel", "192.168.10.21", 1337, 0, 0, 128, 128},
             {"B_ericpanel", "192.168.10.22", 1337, 128, 0, 128, 64},
             {"C_ralfpanel", "192.168.10.20", 1337, 128, 64, 128, 64},
+            {"D_sidpanel", "192.168.10.23", 1337, 256, 0, 32, 16},
         };
         memcpy(s_cfg.panels, rig, sizeof rig);
-        s_cfg.npanels = 3;
+        s_cfg.npanels = sizeof rig / sizeof rig[0];
     }
     config_log(&s_cfg);
     panel_off_init(&s_cfg);

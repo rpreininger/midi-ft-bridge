@@ -37,9 +37,10 @@ static void defaults(config_t *c)
         {"88:a2:9e:75:ff:eb", "192.168.10.21"},  // A bigpanel
         {"d8:3a:dd:de:93:19", "192.168.10.22"},  // B ericpanel
         {"2c:cf:67:cd:6c:8c", "192.168.10.20"},  // C ralfpanel
+        {"44:bd:8d:7a:6d:e4", "192.168.10.23"},  // D sidpanel (SID synth, replaces the iPixel)
     };
     memcpy(c->net.leases, panels, sizeof panels);
-    c->net.nleases = 3;
+    c->net.nleases = sizeof panels / sizeof panels[0];
     net_load_saved(&c->net);  // SSID/password set over the console
 }
 
