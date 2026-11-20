@@ -41,6 +41,15 @@ static uint8_t *s_copy;
 static TaskHandle_t s_task;
 static SemaphoreHandle_t s_draw_done;
 static SemaphoreHandle_t s_draw_lock;  // one task drawing at a time (preview vs. status)
+static volatile bool s_busy;           // preview task is drawing a frame
+static volatile bool s_paused;         // something (the picker) covers the preview
+
+// Overlay (song list): a reserved landscape rectangle of the preview, kept in
+// portrait orientation (s_ovl_w rows of s_ovl_h pixels) at stage (sx, sy).
+static int s_ovl_lx, s_ovl_ly, s_ovl_w, s_ovl_h, s_ovl_sx, s_ovl_sy;
+static uint16_t *volatile s_ovl_port;
+#define BLIT_COLS 32
+static uint16_t *s_blit;  // display_draw_land: BLIT_COLS landscape columns, portrait
 
 // draw_bitmap with use_dma2d is asynchronous; one transfer at a time.
 static bool IRAM_ATTR on_trans_done(esp_lcd_panel_handle_t panel, esp_lcd_dpi_panel_event_data_t *e, void *ctx)
@@ -110,18 +119,30 @@ static void draw_sync(int x0, int y0, int x1, int y1, const void *px)
 
 #define BAND_COLS 2
 
+// Stage rows [rmin, rmax): put the overlay over what the canvas left there.
+static void overlay_into_stage(int rmin, int rmax)
+{
+    const uint16_t *ovl = s_ovl_port;
+    if (!ovl) return;
+    int r0 = rmin > s_ovl_sy ? rmin : s_ovl_sy;
+    int r1 = rmax < s_ovl_sy + s_ovl_w ? rmax : s_ovl_sy + s_ovl_w;
+    for (int r = r0; r < r1; r++)
+        memcpy(s_stage + (size_t)r * s_pw + s_ovl_sx, ovl + (size_t)(r - s_ovl_sy) * s_ovl_h, (size_t)s_ovl_h * 2);
+}
+
 static void preview_task(void *arg)
 {
     for (;;) {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
         const uint8_t *src = s_pending;
-        if (!src) continue;
+        if (!src || s_paused) continue;
+        s_busy = true;
         // Canvas (cx, cy) -> portrait panel: x runs along canvas rows
         // (rotated 90 degrees), each canvas pixel becomes SCALE x SCALE.
         // Drawn in bands of BAND_COLS canvas columns (32 panel rows, 32 KB):
         // one big draw meant a 1.2 MB cache write-back per frame, which
         // stalls memory access long enough to make the USB audio ISR late.
-        for (int c0 = 0; c0 < s_cw; c0 += BAND_COLS) {
+        for (int c0 = 0; c0 < s_cw && !s_paused; c0 += BAND_COLS) {
             int c1 = c0 + BAND_COLS < s_cw ? c0 + BAND_COLS : s_cw;
             for (int cx = c0; cx < c1; cx++) {
                 // row order and column order both reversed = landscape the right way up
@@ -135,8 +156,10 @@ static void preview_task(void *arg)
                 for (int r = 1; r < SCALE; r++) memcpy(row0 + (size_t)r * s_pw, row0, (size_t)s_pw * 2);
             }
             int rmin = (s_cw - c1) * SCALE, rmax = (s_cw - c0) * SCALE;  // [rmin, rmax)
+            overlay_into_stage(rmin, rmax);
             draw_sync(s_px, s_py + rmin, s_px + s_pw, s_py + rmax, s_stage + (size_t)rmin * s_pw);
         }
+        s_busy = false;
     }
 }
 
@@ -222,7 +245,9 @@ esp_err_t display_init(i2c_master_bus_handle_t bus, int canvas_w, int canvas_h)
     free(line);
 
     s_stage = heap_caps_malloc((size_t)s_pw * s_ph * 2, MALLOC_CAP_SPIRAM);
-    s_copy = heap_caps_malloc((size_t)canvas_w * canvas_h * 3, MALLOC_CAP_SPIRAM);
+    // zeroed: resuming the preview before the first clip redraws black
+    s_copy = heap_caps_calloc((size_t)canvas_w * canvas_h, 3, MALLOC_CAP_SPIRAM);
+    s_blit = heap_caps_malloc((size_t)BLIT_COLS * LCD_W * 2, MALLOC_CAP_SPIRAM);
     xTaskCreatePinnedToCore(preview_task, "preview", 4096, NULL, 5, &s_task, 0);
     display_backlight(60);
     ESP_LOGI(TAG, "%s panel up, preview %dx%d at %d,%d", st7121 ? "ST7121" : "ST7123", s_pw, s_ph, s_px, s_py);
@@ -235,10 +260,12 @@ void display_preview(const uint8_t *rgb)
     static uint32_t cnt;
     if (!s_task || !g_diag_preview_div || (cnt++ % g_diag_preview_div)) return;
     // Copy so the player can reuse its buffer; if the preview task is still
-    // drawing the previous frame this one is simply skipped.
-    if (eTaskGetState(s_task) != eBlocked) return;
+    // drawing the previous frame this one is simply skipped. While paused the
+    // copy is kept for the redraw on resume.
+    if (s_busy || eTaskGetState(s_task) != eBlocked) return;
     if (rgb) memcpy(s_copy, rgb, (size_t)s_cw * s_ch * 3);
     else memset(s_copy, 0, (size_t)s_cw * s_ch * 3);
+    if (s_paused) return;
     s_pending = s_copy;
     xTaskNotifyGive(s_task);
 }
@@ -256,16 +283,18 @@ static uint16_t rgb565(uint32_t rgb)
     return (uint16_t)(((rgb >> 8) & 0xF800) | ((rgb >> 5) & 0x07E0) | ((rgb >> 3) & 0x001F));
 }
 
-static int text_width(const char *t)
+int display_text_width(const font_t *f, const char *t)
 {
     int w = 0;
     for (; *t; t++) {
         unsigned c = (unsigned char)*t;
         if (c < 32 || c > 126) c = '?';
-        w += FONT_STATUS.glyphs[c - 32].width;
+        w += f->glyphs[c - 32].width;
     }
     return w;
 }
+
+static int text_width(const char *t) { return display_text_width(&FONT_STATUS, t); }
 
 static void blit_text(int x, const char *t, uint32_t color)
 {
@@ -307,4 +336,107 @@ void display_status(int band, const display_span_t *spans, int n)
     for (int lx = 0; lx < LAND_W; lx++)
         for (int y = 0; y < h; y++) s_port[(size_t)(LCD_H - 1 - lx) * h + y] = s_land[y * LAND_W + lx];
     draw_sync(ly0, 0, ly0 + h, LCD_H, s_port);
+}
+
+// ---- touch UI support ----------------------------------------------------
+// Landscape (lx, ly) is portrait (x = ly, y = LCD_H - 1 - lx). A landscape
+// rectangle w x h is the portrait rectangle x [ly, ly + h), y [LCD_H - lx - w,
+// LCD_H - lx); its landscape column i is portrait row w - 1 - i.
+
+void display_canvas_rect(int cx, int cy, int cw, int ch, int *lx, int *ly, int *w, int *h)
+{
+    *lx = LCD_H - s_py - s_ph + cx * SCALE;
+    *ly = s_px + cy * SCALE;
+    *w = cw * SCALE;
+    *h = ch * SCALE;
+}
+
+void display_preview_rect(int *lx, int *ly, int *w, int *h) { display_canvas_rect(0, 0, s_cw, s_ch, lx, ly, w, h); }
+
+bool display_set_overlay(int cx, int cy, int cw, int ch)
+{
+    if (!s_task || s_ovl_port || cx < 0 || cy < 0 || cw <= 0 || ch <= 0 || cx + cw > s_cw || cy + ch > s_ch)
+        return false;
+    display_canvas_rect(cx, cy, cw, ch, &s_ovl_lx, &s_ovl_ly, &s_ovl_w, &s_ovl_h);
+    s_ovl_sx = cy * SCALE;
+    s_ovl_sy = (s_cw - cx - cw) * SCALE;
+    s_ovl_port = heap_caps_calloc((size_t)s_ovl_w * s_ovl_h, 2, MALLOC_CAP_SPIRAM);  // last: the task checks it
+    return s_ovl_port != NULL;
+}
+
+void display_overlay(const uint16_t *land)
+{
+    uint16_t *port = s_ovl_port;
+    if (!port) return;
+    for (int i = 0; i < s_ovl_w; i++) {
+        uint16_t *row = port + (size_t)(s_ovl_w - 1 - i) * s_ovl_h;
+        for (int j = 0; j < s_ovl_h; j++) row[j] = land[(size_t)j * s_ovl_w + i];
+    }
+    if (s_paused) return;  // the redraw on resume shows it
+    // in bands of 32 rows (see preview_task: big draws stall the USB audio ISR)
+    const int y0 = LCD_H - s_ovl_lx - s_ovl_w;
+    for (int r0 = 0; r0 < s_ovl_w; r0 += 32) {
+        int r1 = r0 + 32 < s_ovl_w ? r0 + 32 : s_ovl_w;
+        draw_sync(s_ovl_ly, y0 + r0, s_ovl_ly + s_ovl_h, y0 + r1, port + (size_t)r0 * s_ovl_h);
+    }
+}
+
+void display_draw_land(int lx, int ly, int w, int h, const uint16_t *land)
+{
+    if (!s_task || !s_blit || h > LCD_W) return;
+    for (int i0 = 0; i0 < w; i0 += BLIT_COLS) {
+        int n = w - i0 < BLIT_COLS ? w - i0 : BLIT_COLS;
+        for (int i = 0; i < n; i++) {
+            uint16_t *row = s_blit + (size_t)(n - 1 - i) * h;
+            const uint16_t *src = land + i0 + i;
+            for (int j = 0; j < h; j++) row[j] = src[(size_t)j * w];
+        }
+        draw_sync(ly, LCD_H - (lx + i0 + n), ly + h, LCD_H - (lx + i0), s_blit);
+    }
+}
+
+void display_pause_preview(bool pause)
+{
+    if (!s_task) return;
+    s_paused = pause;
+    if (pause) {
+        // let a frame in progress stop (it checks s_paused per band)
+        for (int i = 0; i < 50 && s_busy; i++) vTaskDelay(1);
+    } else {
+        s_pending = s_copy;
+        xTaskNotifyGive(s_task);
+    }
+}
+
+uint16_t display_rgb565(uint32_t rgb) { return rgb565(rgb); }
+
+static uint32_t mix(uint32_t fg, uint32_t bg, unsigned a)
+{
+    uint32_t out = 0;
+    for (int s = 0; s <= 16; s += 8)
+        out |= ((((fg >> s) & 0xFF) * a + ((bg >> s) & 0xFF) * (255 - a)) / 255) << s;
+    return out;
+}
+
+int display_text(uint16_t *buf, int bw, int bh, const font_t *f, int x, int y, int max_x,
+                 const char *t, uint32_t fg, uint32_t bg)
+{
+    for (; *t; t++) {
+        unsigned c = (unsigned char)*t;
+        if (c < 32 || c > 126) c = '?';
+        const font_glyph_t *g = &f->glyphs[c - 32];
+        if (x + g->width > max_x) break;
+        const uint8_t *a = f->alpha + g->offset;
+        for (int gy = 0; gy < f->height; gy++) {
+            int yy = y + gy;
+            if (yy < 0 || yy >= bh) continue;
+            for (int gx = 0; gx < g->width; gx++) {
+                int xx = x + gx;
+                uint8_t al = a[gy * g->width + gx];
+                if (al && xx >= 0 && xx < bw) buf[(size_t)yy * bw + xx] = rgb565(mix(fg, bg, al));
+            }
+        }
+        x += g->width;
+    }
+    return x;
 }

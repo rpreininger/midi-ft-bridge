@@ -4,6 +4,7 @@
 //   heap             memory + open state
 //   stress <s> [n]   n rounds (default 50): random clip every <s> seconds,
 //                    a stop every 5th round
+//   tap <x> <y>      a touch tap at landscape x/y (ui.c)
 #include "console.h"
 
 #include <dirent.h>
@@ -22,6 +23,7 @@
 #include "panel_off.h"
 #include "player.h"
 #include "net.h"
+#include "ui.h"
 #include "usb_audio.h"
 #include "esp_system.h"
 
@@ -134,10 +136,13 @@ static void task(void *arg)
             int s = 8;
             sscanf(line + 3, "%d", &s);
             usb_audio_record(s < 1 ? 1 : s > 20 ? 20 : s);
+        } else if (!strncmp(line, "tap ", 4)) {
+            int x = 0, y = 0;
+            if (sscanf(line + 4, "%d %d", &x, &y) == 2) ui_tap(x, y);
         } else if (!strcmp(line, "reboot")) {
             esp_restart();
         } else if (line[0]) {
-            ESP_LOGI(TAG, "commands: play <Name> | stop | heap | stress <s> [n] | wifi <ssid> <pw> | wifi forget | token <hex> | panelping | paneloff | reboot | tone <s> | toneclip <Name> <s> | rec <s> | usbgain <dB> | diag <a> <b>");
+            ESP_LOGI(TAG, "commands: play <Name> | stop | heap | stress <s> [n] | tap <x> <y> | wifi <ssid> <pw> | wifi forget | token <hex> | panelping | paneloff | reboot | tone <s> | toneclip <Name> <s> | rec <s> | usbgain <dB> | diag <a> <b>");
         }
     }
 }

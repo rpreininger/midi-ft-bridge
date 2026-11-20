@@ -26,6 +26,7 @@
 #include "panel_off.h"
 #include "player.h"
 #include "display.h"
+#include "ui.h"
 #include "esp_timer.h"
 #include "power.h"
 #include "esp_heap_caps.h"
@@ -393,6 +394,7 @@ void app_main(void)
     }
 
     player_start(&s_cfg);
+    ui_start(&s_cfg);  // song list + touch picker on the display
     esp_err_t me = midi_host_start(s_cfg.midi_device);
     if (me != ESP_OK) ESP_LOGE(TAG, "USB host: %s", esp_err_to_name(me));
     else {

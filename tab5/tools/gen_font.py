@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Generate the Tab5 status font (firmware/main/font.c) from Pillow's bundled
-default font (Aileron, SIL Open Font License 1.1).
+"""Generate the Tab5 fonts (firmware/main/font.c, font_list.c) from Pillow's
+bundled default font (Aileron, SIL Open Font License 1.1).
 
     python3 -m venv .venv && .venv/bin/pip install pillow
     .venv/bin/python gen_font.py 30 > ../firmware/main/font.c
+    .venv/bin/python gen_font.py 22 FONT_LIST > ../firmware/main/font_list.c
 
 Proportional, 8-bit alpha (anti-aliased), ASCII 32..126.
 """
@@ -11,6 +12,7 @@ import sys
 from PIL import Image, ImageDraw, ImageFont
 
 size = int(sys.argv[1]) if len(sys.argv) > 1 else 30
+name = sys.argv[2] if len(sys.argv) > 2 else 'FONT_STATUS'
 font = ImageFont.load_default(size=size)
 ascent, descent = font.getmetrics()
 height = ascent + descent
@@ -40,5 +42,5 @@ out.append('static const font_glyph_t GLYPHS[95] = {')
 for (w, _), o in zip(glyphs, offs):
     out.append('    {%d, %d},' % (w, o))
 out.append('};\n')
-out.append('const font_t FONT_STATUS = {%d, %d, GLYPHS, ALPHA};' % (height, ascent))
+out.append('const font_t %s = {%d, %d, GLYPHS, ALPHA};' % (name, height, ascent))
 print('\n'.join(out))

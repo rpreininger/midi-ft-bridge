@@ -13,4 +13,5 @@ typedef struct {
     const uint8_t *alpha;        // 8-bit coverage, row-major, width x height
 } font_t;
 
-extern const font_t FONT_STATUS;
+extern const font_t FONT_STATUS;  // 37 px: status bands, picker buttons (font.c)
+extern const font_t FONT_LIST;    // 28 px: song list (font_list.c)

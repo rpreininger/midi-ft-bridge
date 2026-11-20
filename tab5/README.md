@@ -49,7 +49,22 @@ Behaviour (`main/main.c`, `main/player.c`):
   `"leases"` in the `tab5` block. SSID/password can be stored on the device
   (console `wifi <ssid> <password>`, then `reboot`) so it stays out of git.
 - USB-C console (115200, dtr/rts off): `play <Name>`, `stop`, `heap`,
-  `wifi ...`, `reboot`, `stress <s> [n]` (random clip every s seconds, a stop every 5th round).
+  `wifi ...`, `reboot`, `stress <s> [n]` (random clip every s seconds, a stop every 5th round),
+  `tap <x> <y>` (a touch tap at landscape pixel x/y, for tests).
+- Touch (2026-11-19, `main/ui.c`, driver `main/touch.c` from m5-bass-synth:
+  Sitronix controller at I2C 0x55). **Song list** right of the panel areas,
+  in the canvas area below D (256,16 32x112, sent to no panel; 128 x 448 px
+  on screen): the mapped clips in pad order, the playing one in yellow. The
+  rows (32 px = 2.8 mm) are too small to hit with a finger, so a **tap on the
+  preview or the list opens a picker**: one big button per clip (5 x 3,
+  220 x 160 px = about 19 x 14 mm) plus STOP over the preview. A tap plays or
+  stops and closes it; a tap beside the buttons or 8 s without a tap closes
+  it too. A rig (config.json) with a panel in that area gets no list, only
+  the picker. List font: `tools/gen_font.py 22 FONT_LIST` -> `font_list.c`.
+  Night test 2026-11-19/20 (7 h 21 min, a clip or stop every 30 s, half via
+  console, half via `tap`): 305 touch plays, 75 touch stops, 125 picker
+  timeouts, 303 console plays, 0 failures, 0 error lines, 0 resets,
+  24.7 fps, send max 13.8 ms. One real finger tap in between worked too.
 - `/sdcard/bench` -> run the decode/SD benchmark instead;
   `/sdcard/streamtest` -> the 60 s streaming load test.
 
@@ -137,7 +152,10 @@ Next steps:
 3. Stage hardening: power loss during upload, battery runtime.
 4. Internal DMA heap still shrinks slowly (188 KB idle at boot -> ~59 KB
    after 6 h); harmless now that the SD buffers are allocated once, but
-   find the consumer (Wi-Fi/lwIP?).
+   find the consumer (Wi-Fi/lwIP?). Night test 2026-11-19/20: 64.7 KB
+   while playing at the start -> min 22.4 KB after 6.5 h (38.6 KB after
+   the final stop), largest block 31.7 KB -> 8 KB. Until it is found:
+   power the Tab5 up fresh before each gig.
 5. BLE panel (iPixel): `ble_panel.c` (NimBLE on the P4, HCI over the C6)
    finds, connects and shows frames (ROM-deflate PNG; this panel never sends
    the protocol's ACK, so the wait after a window drops to 60 ms). But the C6
